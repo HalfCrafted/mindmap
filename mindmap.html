@@ -57,6 +57,9 @@
             transform-origin: 0 0;
             width: 0;
             height: 0;
+            /* Improve text rendering during transforms */
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         /* SVG layer for connections - inside world so it transforms together */
@@ -68,7 +71,7 @@
             height: 0;
             overflow: visible;
             pointer-events: none;
-            z-index: 0;
+            z-index: 2;
         }
 
         #connections-layer path {
@@ -98,6 +101,41 @@
         #connections-layer path.merge-ready {
             stroke-width: 4px;
             filter: drop-shadow(0 0 8px var(--accent)) drop-shadow(0 0 16px var(--accent));
+        }
+
+        /* Waypoint handles on noodles */
+        #connections-layer .waypoint {
+            fill: var(--accent);
+            stroke: white;
+            stroke-width: 2px;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        #connections-layer .waypoint:hover {
+            fill: var(--accent-light);
+            filter: drop-shadow(0 0 4px var(--accent));
+        }
+
+        #connections-layer .waypoint.selected {
+            fill: white;
+            stroke: var(--accent);
+        }
+
+        /* Bezier control handles */
+        #connections-layer .bezier-handle {
+            fill: var(--warning);
+            stroke: white;
+            stroke-width: 1.5px;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        #connections-layer .bezier-handle-line {
+            stroke: var(--warning);
+            stroke-width: 1px;
+            stroke-dasharray: 3, 2;
+            pointer-events: none;
         }
 
         /* Snap alignment guides */
@@ -137,19 +175,29 @@
             position: absolute;
             background: var(--node-bg);
             border: 2px solid var(--node-border);
-            border-radius: 8px;
+            border-radius: 14px;
             cursor: grab;
             z-index: 1;
-            transition: border-color 0.15s, box-shadow 0.15s;
             display: flex;
             flex-direction: column;
             overflow: visible;
             min-width: 80px;
             min-height: 40px;
+
+            /* Smooth hover transitions */
+            transition: border-color 0.15s,
+                        box-shadow 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                        transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
         .node:hover {
             border-color: var(--node-hover);
+        }
+
+        /* Connected node glow class */
+        .node.connected-glow {
+            box-shadow: 0 0 18px var(--connected-glow-color, rgba(255, 255, 255, 0.25)),
+                        0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
         .node.selected {
@@ -177,7 +225,7 @@
             height: 4px;
             width: 100%;
             flex-shrink: 0;
-            border-radius: 6px 6px 0 0;
+            border-radius: 12px 12px 0 0;
         }
 
         /* Node content */
@@ -402,23 +450,6 @@
             border-radius: 50%;
             cursor: pointer;
             border: none;
-        }
-
-        .color-btn {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            border: 2px solid transparent;
-            cursor: pointer;
-            transition: transform 0.15s;
-        }
-
-        .color-btn:hover {
-            transform: scale(1.15);
-        }
-
-        .color-btn.active {
-            border-color: white;
         }
 
         /* Info panel */
@@ -734,18 +765,6 @@
                 </button>
             </div>
         </div>
-        <div class="inspector-row">
-            <span class="inspector-label">Color</span>
-            <div class="inspector-controls">
-                <div class="color-btn active" data-color="none" style="background: var(--node-bg); border: 1px solid #444;" title="Default"></div>
-                <div class="color-btn" data-color="#6366f1" style="background: #6366f1;" title="Purple"></div>
-                <div class="color-btn" data-color="#22c55e" style="background: #22c55e;" title="Green"></div>
-                <div class="color-btn" data-color="#f59e0b" style="background: #f59e0b;" title="Orange"></div>
-                <div class="color-btn" data-color="#ef4444" style="background: #ef4444;" title="Red"></div>
-                <div class="color-btn" data-color="#06b6d4" style="background: #06b6d4;" title="Cyan"></div>
-                <div class="color-btn" data-color="#ec4899" style="background: #ec4899;" title="Pink"></div>
-            </div>
-        </div>
     </div>
 
     <!-- Info panel -->
@@ -765,7 +784,7 @@
     </div>
 
     <!-- Help panel -->
-    <div id="help-panel">
+    <div id="help-panel" class="collapsed">
         <button class="help-toggle" id="help-toggle">?</button>
         <div class="help-content">
             <div class="shortcut-grid">
@@ -914,6 +933,15 @@
             this.scaleStartFactor = 1;
             this.scaleNodeData = null;
 
+            // Waypoint/bezier handle editing
+            this.isDraggingWaypoint = false;
+            this.draggingWaypointConn = null;
+            this.draggingWaypointIndex = null;
+            this.selectedWaypoint = null; // { conn, index }
+            this.isDraggingBezierHandle = false;
+            this.draggingBezierHandle = null; // 'in' or 'out'
+            this.selectedConnection = null; // Currently selected connection for editing
+
             // Undo/Redo history
             this.history = [];
             this.historyIndex = -1;
@@ -1023,6 +1051,7 @@
             this.nodeIdCounter = state.nodeIdCounter;
 
             // Update UI
+            this.updateAllNodeColors();
             this.renderConnections();
             this.updateUI();
             this.updateMinimap();
@@ -1115,15 +1144,6 @@
                 this.setEditingItalic(btn.classList.contains('active'));
             });
 
-            // Inspector color buttons
-            document.querySelectorAll('#text-inspector .color-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    document.querySelectorAll('#text-inspector .color-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    this.setSelectedColor(btn.dataset.color);
-                });
-            });
-
             // Context menu items
             document.getElementById('ctx-add').addEventListener('click', () => {
                 if (this.contextTarget) {
@@ -1210,8 +1230,68 @@
                 return;
             }
 
+            // Left click on noodle path = select connection or add waypoint
+            if (e.button === 0 && e.target.tagName === 'path' && e.target.closest('#connections-layer')) {
+                const pos = this.screenToWorld(e.clientX, e.clientY);
+
+                // Get connection from hit area dataset or find by point
+                let conn = null;
+                if (e.target.dataset.connIdx !== undefined) {
+                    conn = this.connections[parseInt(e.target.dataset.connIdx)];
+                } else {
+                    conn = this.findConnectionAtPoint(pos.x, pos.y);
+                }
+
+                if (conn) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // If connection not selected, just select it
+                    if (this.selectedConnection !== conn) {
+                        this.selectedConnection = conn;
+                        this.selectedWaypoint = null;
+                        this.deselectAll();
+                        this.renderConnections();
+                        return;
+                    }
+
+                    // Connection is already selected - add a waypoint
+                    this.saveState();
+
+                    // Initialize waypoints array if needed
+                    if (!conn.waypoints) conn.waypoints = [];
+
+                    // Find the best position to insert the waypoint (based on t parameter)
+                    const t = this.findTOnConnection(conn, pos.x, pos.y);
+                    const insertIndex = this.findWaypointInsertIndex(conn, t);
+
+                    // Create waypoint with default handles
+                    const waypoint = {
+                        x: pos.x,
+                        y: pos.y,
+                        handleIn: { x: -30, y: 0 },
+                        handleOut: { x: 30, y: 0 }
+                    };
+
+                    conn.waypoints.splice(insertIndex, 0, waypoint);
+
+                    // Start dragging this waypoint
+                    this.isDraggingWaypoint = true;
+                    this.draggingWaypointConn = conn;
+                    this.draggingWaypointIndex = insertIndex;
+                    this.selectedWaypoint = { conn, index: insertIndex };
+
+                    this.renderConnections();
+                    return;
+                }
+            }
+
             // Left click on background = start box selection (Blender-style)
             if (e.button === 0 && (e.target === this.viewport || e.target === this.world || e.target.tagName === 'svg')) {
+                // Clear connection and waypoint selection
+                this.selectedConnection = null;
+                this.selectedWaypoint = null;
+
                 // Deselect unless shift is held (for additive selection)
                 if (!e.shiftKey) {
                     this.deselectAll();
@@ -1260,6 +1340,40 @@
                 return;
             }
 
+            // Waypoint dragging
+            if (this.isDraggingWaypoint && this.draggingWaypointConn) {
+                const pos = this.screenToWorld(e.clientX, e.clientY);
+                const wp = this.draggingWaypointConn.waypoints[this.draggingWaypointIndex];
+                if (wp) {
+                    wp.x = pos.x;
+                    wp.y = pos.y;
+                    this.renderConnections();
+                }
+                return;
+            }
+
+            // Bezier handle dragging
+            if (this.isDraggingBezierHandle && this.selectedWaypoint) {
+                const pos = this.screenToWorld(e.clientX, e.clientY);
+                const wp = this.selectedWaypoint.conn.waypoints[this.selectedWaypoint.index];
+                if (wp) {
+                    const handle = this.draggingBezierHandle;
+                    const dx = pos.x - wp.x;
+                    const dy = pos.y - wp.y;
+
+                    if (handle === 'out') {
+                        wp.handleOut = { x: dx, y: dy };
+                        // Mirror the other handle for smooth curves
+                        wp.handleIn = { x: -dx, y: -dy };
+                    } else {
+                        wp.handleIn = { x: dx, y: dy };
+                        wp.handleOut = { x: -dx, y: -dy };
+                    }
+                    this.renderConnections();
+                }
+                return;
+            }
+
             // Plug dragging
             if (this.isDraggingPlug && this.tempLine) {
                 const toPos = this.screenToWorld(e.clientX, e.clientY);
@@ -1268,11 +1382,43 @@
 
                 // Get the fixed end position
                 const fixedId = end === 'from' ? conn.to : conn.from;
+                const currentNodeId = end === 'from' ? conn.from : conn.to;
                 const fixedNode = this.nodes.get(fixedId);
                 const fixedEl = document.getElementById(`node-${fixedId}`);
                 if (fixedNode && fixedEl) {
                     const fx = fixedNode.x + fixedEl.offsetWidth / 2;
                     const fy = fixedNode.y + fixedEl.offsetHeight / 2;
+
+                    // Check if hovering over the same node - snap to perimeter
+                    const hoverEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.node');
+                    if (hoverEl) {
+                        const hoverId = parseInt(hoverEl.id.replace('node-', ''));
+                        if (hoverId === currentNodeId) {
+                            // Snap to perimeter
+                            const perimPos = this.getPerimeterPosition(currentNodeId, toPos.x, toPos.y);
+                            if (perimPos) {
+                                const node = this.nodes.get(currentNodeId);
+                                const el = document.getElementById(`node-${currentNodeId}`);
+                                const w = el.offsetWidth;
+                                const h = el.offsetHeight;
+                                const cx = node.x + w / 2;
+                                const cy = node.y + h / 2;
+                                const hw = w / 2 + 2;
+                                const hh = h / 2 + 2;
+                                const t = perimPos.offset - 0.5;
+
+                                let snapX, snapY;
+                                switch (perimPos.edge) {
+                                    case 'top': snapX = cx + t * w; snapY = cy - hh; break;
+                                    case 'bottom': snapX = cx + t * w; snapY = cy + hh; break;
+                                    case 'left': snapX = cx - hw; snapY = cy + t * h; break;
+                                    case 'right': snapX = cx + hw; snapY = cy + t * h; break;
+                                }
+                                this.tempLine.setAttribute('d', `M ${fx} ${fy} L ${snapX} ${snapY}`);
+                                return;
+                            }
+                        }
+                    }
                     this.tempLine.setAttribute('d', `M ${fx} ${fy} L ${toPos.x} ${toPos.y}`);
                 }
                 return;
@@ -1395,6 +1541,23 @@
                 return;
             }
 
+            // End waypoint dragging
+            if (this.isDraggingWaypoint) {
+                this.isDraggingWaypoint = false;
+                this.draggingWaypointConn = null;
+                this.draggingWaypointIndex = null;
+                this.saveToStorage();
+                this.renderConnections();
+            }
+
+            // End bezier handle dragging
+            if (this.isDraggingBezierHandle) {
+                this.isDraggingBezierHandle = false;
+                this.draggingBezierHandle = null;
+                this.saveToStorage();
+                this.renderConnections();
+            }
+
             // End cutting
             if (this.isCutting) {
                 const endPos = this.screenToWorld(e.clientX, e.clientY);
@@ -1416,21 +1579,40 @@
             // End plug dragging
             if (this.isDraggingPlug) {
                 const targetEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.node');
+                const conn = this.plugDragConnection;
+                const end = this.plugDragEnd;
+                const currentNodeId = end === 'from' ? conn.from : conn.to;
+                const otherId = end === 'from' ? conn.to : conn.from;
+
                 if (targetEl) {
                     const targetId = parseInt(targetEl.id.replace('node-', ''));
-                    const conn = this.plugDragConnection;
-                    const end = this.plugDragEnd;
-                    const otherId = end === 'from' ? conn.to : conn.from;
 
-                    if (targetId !== otherId) {
-                        // Update the connection
+                    if (targetId === currentNodeId) {
+                        // Dropped on same node - slide plug along perimeter
+                        const pos = this.screenToWorld(e.clientX, e.clientY);
+                        const perimeterPos = this.getPerimeterPosition(targetId, pos.x, pos.y);
+                        if (perimeterPos) {
+                            this.saveState();
+                            if (end === 'from') {
+                                conn.fromPos = perimeterPos;
+                            } else {
+                                conn.toPos = perimeterPos;
+                            }
+                            this.renderConnections();
+                            this.saveToStorage();
+                        }
+                    } else if (targetId !== otherId) {
+                        // Dropped on different node - reconnect
                         this.saveState();
                         const idx = this.connections.findIndex(c => c === conn);
                         if (idx !== -1) {
                             if (end === 'from') {
                                 this.connections[idx].from = targetId;
+                                // Clear custom position when reconnecting
+                                delete this.connections[idx].fromPos;
                             } else {
                                 this.connections[idx].to = targetId;
+                                delete this.connections[idx].toPos;
                             }
                         }
                         this.renderConnections();
@@ -1463,6 +1645,11 @@
                 const minY = Math.min(this.boxStartY, endPos.y);
                 const maxY = Math.max(this.boxStartY, endPos.y);
 
+                // Clear connection selection
+                this.selectedConnection = null;
+                this.selectedWaypoint = null;
+
+                // Check for node selection
                 this.nodes.forEach((node, id) => {
                     const el = document.getElementById(`node-${id}`);
                     const w = el?.offsetWidth || 100;
@@ -1474,6 +1661,18 @@
                         this.selectNode(id, true);
                     }
                 });
+
+                // If no nodes selected, check for connection selection
+                if (this.selectedNodes.size === 0) {
+                    for (const conn of this.connections) {
+                        if (this.connectionIntersectsBox(conn, minX, minY, maxX, maxY)) {
+                            this.selectedConnection = conn;
+                            break;
+                        }
+                    }
+                }
+
+                this.renderConnections();
             }
 
             // End resizing
@@ -1518,6 +1717,7 @@
 
                 // Clear merge indicator and re-render
                 this.clearMergeIndicator();
+                this.updateAllNodeColors();
                 this.renderConnections();
 
                 this.saveState(); // Save state after moving
@@ -1663,7 +1863,11 @@
                 case 'Backspace':
                 case 'x':
                 case 'X':
-                    if (this.selectedNodes.size > 0) {
+                    // Delete selected waypoint first
+                    if (this.selectedWaypoint) {
+                        e.preventDefault();
+                        this.deleteWaypoint(this.selectedWaypoint.conn, this.selectedWaypoint.index);
+                    } else if (this.selectedNodes.size > 0) {
                         e.preventDefault();
                         this.deleteSelected();
                     }
@@ -1677,6 +1881,10 @@
                     break;
 
                 case 'Escape':
+                    if (this.selectedWaypoint) {
+                        this.selectedWaypoint = null;
+                        this.renderConnections();
+                    }
                     this.deselectAll();
                     this.hideContextMenu();
                     break;
@@ -1787,7 +1995,8 @@
             const el = document.createElement('div');
             el.className = 'node';
             el.id = `node-${node.id}`;
-            el.style.transform = `translate(${node.x}px, ${node.y}px)`;
+            el.style.left = node.x + 'px';
+            el.style.top = node.y + 'px';
 
             // Apply size if set
             if (node.width) el.style.width = node.width + 'px';
@@ -1831,6 +2040,28 @@
                 this.editNode(node.id);
             });
 
+            // Hover effect - crisp text (no 3D perspective)
+            el.addEventListener('mouseenter', () => {
+                if (this.draggingNodes || this.isResizing) return;
+
+                // Subtle lift with scale - no blur
+                el.style.transform = 'translateY(-3px) scale(1.015)';
+
+                // Apply enhanced color-matched glow
+                const glowColor = node.color !== 'none' ? node.color : 'rgba(255, 255, 255, 0.6)';
+                const glowOpacity = node.color !== 'none' ? '0.6' : '0.3';
+                el.style.boxShadow = `0 0 30px ${this.hexToRgba(glowColor, glowOpacity)}, 0 0 60px ${this.hexToRgba(glowColor, glowOpacity * 0.5)}, 0 12px 35px rgba(0, 0, 0, 0.4)`;
+
+                // Highlight connected nodes
+                this.highlightConnectedNodes(node.id, true);
+            });
+
+            el.addEventListener('mouseleave', () => {
+                el.style.transform = '';
+                el.style.boxShadow = '';
+                this.highlightConnectedNodes(node.id, false);
+            });
+
             // Store dimensions after render
             setTimeout(() => {
                 node.w = el.offsetWidth;
@@ -1867,7 +2098,8 @@
             const node = this.nodes.get(id);
             const el = document.getElementById(`node-${id}`);
             if (node && el) {
-                el.style.transform = `translate(${node.x}px, ${node.y}px)`;
+                el.style.left = node.x + 'px';
+            el.style.top = node.y + 'px';
             }
         }
 
@@ -1920,7 +2152,14 @@
                     const n = this.nodes.get(id);
                     if (n) {
                         this.dragOffsets.set(id, { x: n.x, y: n.y });
-                        document.getElementById(`node-${id}`)?.classList.add('dragging');
+                        const el = document.getElementById(`node-${id}`);
+                        if (el) {
+                            el.classList.add('dragging');
+                            // Reset tilt when dragging starts
+                            el.style.transform = '';
+                            el.style.boxShadow = '';
+                            el.classList.remove('connected-glow');
+                        }
                     }
                 });
             }
@@ -1939,7 +2178,14 @@
                 const n = this.nodes.get(id);
                 if (n) {
                     this.dragOffsets.set(id, { x: n.x, y: n.y });
-                    document.getElementById(`node-${id}`)?.classList.add('dragging');
+                    const el = document.getElementById(`node-${id}`);
+                    if (el) {
+                        el.classList.add('dragging');
+                        // Reset tilt when dragging starts
+                        el.style.transform = '';
+                        el.style.boxShadow = '';
+                        el.classList.remove('connected-glow');
+                    }
                 }
             });
         }
@@ -2025,7 +2271,8 @@
                 // Update DOM
                 el.style.width = newWidth + 'px';
                 el.style.height = newHeight + 'px';
-                el.style.transform = `translate(${node.x}px, ${node.y}px)`;
+                el.style.left = node.x + 'px';
+            el.style.top = node.y + 'px';
                 const content = el.querySelector('.node-content');
                 if (content) {
                     content.style.fontSize = newFontSize + 'px';
@@ -2063,7 +2310,8 @@
 
                 el.style.width = orig.width + 'px';
                 el.style.height = orig.height + 'px';
-                el.style.transform = `translate(${orig.x}px, ${orig.y}px)`;
+                el.style.left = orig.x + 'px';
+                el.style.top = orig.y + 'px';
                 const content = el.querySelector('.node-content');
                 if (content) {
                     content.style.fontSize = orig.fontSize + 'px';
@@ -2078,6 +2326,13 @@
         }
 
         selectNode(id, additive = false) {
+            // Clear connection selection when selecting nodes
+            if (this.selectedConnection) {
+                this.selectedConnection = null;
+                this.selectedWaypoint = null;
+                this.renderConnections();
+            }
+
             if (!additive) {
                 this.selectedNodes.clear();
                 document.querySelectorAll('.node.selected').forEach(el => el.classList.remove('selected'));
@@ -2201,11 +2456,6 @@
             // Bold/Italic
             document.getElementById('btn-bold').classList.toggle('active', node.bold);
             document.getElementById('btn-italic').classList.toggle('active', node.italic);
-
-            // Color
-            document.querySelectorAll('#text-inspector .color-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.color === (node.color || 'none'));
-            });
         }
 
         hideTextInspector() {
@@ -2289,6 +2539,7 @@
             });
 
             this.selectedNodes.clear();
+            this.updateAllNodeColors();
             this.renderConnections();
             this.updateUI();
             this.updateMinimap();
@@ -2338,38 +2589,6 @@
             this.toast('Duplicated', 'success');
         }
 
-        setSelectedColor(color) {
-            // If editing, apply to editing node (state already saved when edit started)
-            if (this.editingNodeId) {
-                const node = this.nodes.get(this.editingNodeId);
-                const el = document.getElementById(`node-${this.editingNodeId}`);
-                const header = el?.querySelector('.node-header');
-                if (node && header) {
-                    node.color = color;
-                    header.style.background = color !== 'none' ? color : 'transparent';
-                }
-                this.saveToStorage();
-                return;
-            }
-
-            // Otherwise apply to all selected
-            if (this.selectedNodes.size > 0) {
-                this.saveState(); // Save state before color change
-            }
-            this.selectedNodes.forEach(id => {
-                const node = this.nodes.get(id);
-                if (node) {
-                    node.color = color;
-                    const el = document.getElementById(`node-${id}`);
-                    const header = el?.querySelector('.node-header');
-                    if (header) {
-                        header.style.background = color !== 'none' ? color : 'transparent';
-                    }
-                }
-            });
-            this.saveToStorage();
-        }
-
         updateNodeStyle(id) {
             const node = this.nodes.get(id);
             const el = document.getElementById(`node-${id}`);
@@ -2395,6 +2614,37 @@
         // CONNECTIONS
         // ==================
 
+        getConnectionCount(nodeId) {
+            return this.connections.filter(c => c.from === nodeId || c.to === nodeId).length;
+        }
+
+        getColorForConnectionCount(count) {
+            // VIBGYOR reversed: violet (1) -> red (max)
+            // 0 = uncolored, 1 = violet, 2 = blue, 3 = cyan, 4 = green, 5 = yellow, 6 = orange, 7+ = red
+            if (count === 0) return 'none';
+            if (count === 1) return '#8B5CF6'; // Violet
+            if (count === 2) return '#6366f1'; // Indigo/Blue
+            if (count === 3) return '#06b6d4'; // Cyan/Aqua
+            if (count === 4) return '#22c55e'; // Green
+            if (count === 5) return '#EAB308'; // Yellow
+            if (count === 6) return '#f59e0b'; // Orange
+            return '#ef4444'; // Red (7+)
+        }
+
+        updateAllNodeColors() {
+            this.nodes.forEach((node, id) => {
+                const count = this.getConnectionCount(id);
+                const color = this.getColorForConnectionCount(count);
+                node.color = color;
+
+                const el = document.getElementById(`node-${id}`);
+                const header = el?.querySelector('.node-header');
+                if (header) {
+                    header.style.background = color !== 'none' ? color : 'transparent';
+                }
+            });
+        }
+
         addConnection(fromId, toId) {
             // Prevent duplicates
             const exists = this.connections.some(c =>
@@ -2404,6 +2654,7 @@
             if (!exists && fromId !== toId) {
                 this.saveState(); // Save state before adding connection
                 this.connections.push({ from: fromId, to: toId });
+                this.updateAllNodeColors();
                 this.renderConnections();
                 this.saveToStorage();
             }
@@ -2423,6 +2674,9 @@
             if (cutLine) this.svgLayer.appendChild(cutLine);
 
             const neutralColor = '#6a6a7a';
+
+            // Reset pending plugs (will be rendered on top after all connections)
+            this.pendingPlugs = [];
 
             this.connections.forEach((conn, idx) => {
                 const n1 = this.nodes.get(conn.from);
@@ -2447,6 +2701,23 @@
                 const dx = cx2 - cx1;
                 const dy = cy2 - cy1;
 
+                // Get a point on the perimeter given edge and offset (0-1, 0.5 = center)
+                const getPerimeterPoint = (cx, cy, w, h, edge, offset) => {
+                    const hw = w / 2 + 2;
+                    const hh = h / 2 + 2;
+                    const t = offset - 0.5; // -0.5 to 0.5
+                    switch (edge) {
+                        case 'top':
+                            return { x: cx + t * w, y: cy - hh, side: 'top' };
+                        case 'bottom':
+                            return { x: cx + t * w, y: cy + hh, side: 'bottom' };
+                        case 'left':
+                            return { x: cx - hw, y: cy + t * h, side: 'left' };
+                        case 'right':
+                            return { x: cx + hw, y: cy + t * h, side: 'right' };
+                    }
+                };
+
                 // Determine which cardinal edge to connect from based on direction
                 const getCardinalEdgePoint = (cx, cy, w, h, toDx, toDy) => {
                     const hw = w / 2 + 2;
@@ -2468,8 +2739,13 @@
                     }
                 };
 
-                const p1 = getCardinalEdgePoint(cx1, cy1, w1, h1, dx, dy);
-                const p2 = getCardinalEdgePoint(cx2, cy2, w2, h2, -dx, -dy);
+                // Use custom positions if set, otherwise auto-calculate
+                const p1 = conn.fromPos
+                    ? getPerimeterPoint(cx1, cy1, w1, h1, conn.fromPos.edge, conn.fromPos.offset)
+                    : getCardinalEdgePoint(cx1, cy1, w1, h1, dx, dy);
+                const p2 = conn.toPos
+                    ? getPerimeterPoint(cx2, cy2, w2, h2, conn.toPos.edge, conn.toPos.offset)
+                    : getCardinalEdgePoint(cx2, cy2, w2, h2, -dx, -dy);
 
                 const x1 = p1.x;
                 const y1 = p1.y;
@@ -2504,48 +2780,91 @@
 
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
 
-                // Improved bezier curve with more satisfying curvature
-                const dist = Math.hypot(dx, dy);
-                const tension = 0.35;
-                const minCurve = 30;
-                const maxCurve = 150;
-                const curviness = Math.min(maxCurve, Math.max(minCurve, dist * tension));
+                // Build path through waypoints if any
+                const waypoints = conn.waypoints || [];
+                let d;
 
-                const absDx = Math.abs(dx);
-                const absDy = Math.abs(dy);
+                if (waypoints.length === 0) {
+                    // No waypoints - use standard bezier
+                    const dist = Math.hypot(dx, dy);
+                    const tension = 0.35;
+                    const minCurve = 30;
+                    const maxCurve = 150;
+                    const curviness = Math.min(maxCurve, Math.max(minCurve, dist * tension));
 
-                let cp1x, cp1y, cp2x, cp2y;
+                    const absDx = Math.abs(dx);
+                    const absDy = Math.abs(dy);
 
-                if (absDx > absDy * 1.2) {
-                    const curveDir = dx > 0 ? 1 : -1;
-                    cp1x = x1 + curviness * curveDir;
-                    cp1y = y1;
-                    cp2x = x2 - curviness * curveDir;
-                    cp2y = y2;
-                } else if (absDy > absDx * 1.2) {
-                    const curveDir = dy > 0 ? 1 : -1;
-                    cp1x = x1;
-                    cp1y = y1 + curviness * curveDir;
-                    cp2x = x2;
-                    cp2y = y2 - curviness * curveDir;
+                    let cp1x, cp1y, cp2x, cp2y;
+
+                    if (absDx > absDy * 1.2) {
+                        const curveDir = dx > 0 ? 1 : -1;
+                        cp1x = x1 + curviness * curveDir;
+                        cp1y = y1;
+                        cp2x = x2 - curviness * curveDir;
+                        cp2y = y2;
+                    } else if (absDy > absDx * 1.2) {
+                        const curveDir = dy > 0 ? 1 : -1;
+                        cp1x = x1;
+                        cp1y = y1 + curviness * curveDir;
+                        cp2x = x2;
+                        cp2y = y2 - curviness * curveDir;
+                    } else {
+                        const hCurve = curviness * 0.7 * (dx > 0 ? 1 : -1);
+                        const vCurve = curviness * 0.7 * (dy > 0 ? 1 : -1);
+                        cp1x = x1 + hCurve;
+                        cp1y = y1 + vCurve * 0.3;
+                        cp2x = x2 - hCurve;
+                        cp2y = y2 - vCurve * 0.3;
+                    }
+
+                    conn._bezier = { x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2 };
+                    d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
                 } else {
-                    const hCurve = curviness * 0.7 * (dx > 0 ? 1 : -1);
-                    const vCurve = curviness * 0.7 * (dy > 0 ? 1 : -1);
-                    cp1x = x1 + hCurve;
-                    cp1y = y1 + vCurve * 0.3;
-                    cp2x = x2 - hCurve;
-                    cp2y = y2 - vCurve * 0.3;
+                    // Build path through waypoints
+                    const points = [
+                        { x: x1, y: y1, handleOut: { x: 30, y: 0 } },
+                        ...waypoints,
+                        { x: x2, y: y2, handleIn: { x: -30, y: 0 } }
+                    ];
+
+                    d = `M ${x1} ${y1}`;
+
+                    for (let i = 0; i < points.length - 1; i++) {
+                        const p0 = points[i];
+                        const p1 = points[i + 1];
+
+                        // Control point 1 (from current point's handleOut)
+                        const cp1x = p0.x + (p0.handleOut?.x || 30);
+                        const cp1y = p0.y + (p0.handleOut?.y || 0);
+
+                        // Control point 2 (from next point's handleIn)
+                        const cp2x = p1.x + (p1.handleIn?.x || -30);
+                        const cp2y = p1.y + (p1.handleIn?.y || 0);
+
+                        d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p1.x} ${p1.y}`;
+                    }
+
+                    // Store first segment bezier for intersection testing
+                    const firstWp = waypoints[0];
+                    conn._bezier = {
+                        x1, y1,
+                        cp1x: x1 + 30,
+                        cp1y: y1,
+                        cp2x: firstWp.x + (firstWp.handleIn?.x || -30),
+                        cp2y: firstWp.y + (firstWp.handleIn?.y || 0),
+                        x2: firstWp.x,
+                        y2: firstWp.y
+                    };
                 }
 
-                // Store bezier data for intersection testing
-                conn._bezier = { x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2 };
-
-                const d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
                 path.setAttribute('d', d);
                 path.style.stroke = `url(#${gradientId})`;
 
                 const isHighlighted = this.selectedNodes.has(conn.from) || this.selectedNodes.has(conn.to);
-                if (isHighlighted) {
+                const isConnSelected = this.selectedConnection === conn;
+
+                if (isHighlighted || isConnSelected) {
                     path.classList.add('highlighted');
                 }
 
@@ -2554,36 +2873,60 @@
                     path.classList.add('merge-ready');
                 }
 
+                // Add invisible wider hit area for easier clicking
+                const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                hitArea.setAttribute('d', d);
+                hitArea.style.stroke = 'transparent';
+                hitArea.style.strokeWidth = '20px';
+                hitArea.style.fill = 'none';
+                hitArea.style.pointerEvents = 'stroke';
+                hitArea.style.cursor = 'pointer';
+                hitArea.dataset.connIdx = idx;
+                this.svgLayer.appendChild(hitArea);
+
+                // Visible path on top (no pointer events, let hit area handle it)
+                path.style.pointerEvents = 'none';
                 this.svgLayer.appendChild(path);
 
-                // Add connection plugs (rectangular, colored based on node color)
-                const plugW = isHighlighted ? 10 : 8;
-                const plugH = isHighlighted ? 6 : 5;
+                // Add connection plugs (scaled based on node size)
+                const getPlugSize = (nodeW, nodeH) => {
+                    const avgSize = (nodeW + nodeH) / 2;
+                    const scale = Math.max(0.8, Math.min(2.5, avgSize / 80));
+                    return {
+                        w: Math.round((isHighlighted ? 14 : 12) * scale),
+                        h: Math.round((isHighlighted ? 5 : 4) * scale)
+                    };
+                };
+
+                const plug1Size = getPlugSize(w1, h1);
+                const plug2Size = getPlugSize(w2, h2);
 
                 // Helper to create rectangular plug oriented based on edge side
-                const createPlug = (px, py, side, color, conn, end) => {
+                const createPlug = (px, py, side, color, conn, end, plugSize) => {
                     const plug = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    const pW = plugSize.w;
+                    const pH = plugSize.h;
 
                     // Orient rectangle based on which edge it's on
                     let w, h, rx, ry;
                     if (side === 'left' || side === 'right') {
-                        w = plugH;
-                        h = plugW;
-                        rx = px - plugH / 2;
-                        ry = py - plugW / 2;
+                        w = pH;
+                        h = pW;
+                        rx = px - pH / 2;
+                        ry = py - pW / 2;
                     } else {
-                        w = plugW;
-                        h = plugH;
-                        rx = px - plugW / 2;
-                        ry = py - plugH / 2;
+                        w = pW;
+                        h = pH;
+                        rx = px - pW / 2;
+                        ry = py - pH / 2;
                     }
 
                     plug.setAttribute('x', rx);
                     plug.setAttribute('y', ry);
                     plug.setAttribute('width', w);
                     plug.setAttribute('height', h);
-                    plug.setAttribute('rx', 2);
-                    plug.setAttribute('ry', 2);
+                    plug.setAttribute('rx', 2.5);
+                    plug.setAttribute('ry', 2.5);
                     plug.style.fill = color;
                     plug.style.stroke = this.darkenColor(color);
                     plug.style.strokeWidth = '1.5px';
@@ -2596,16 +2939,133 @@
                         this.startPlugDrag(conn, end, px, py);
                     });
 
+                    // Double-click to reset plug to default cardinal position
+                    plug.addEventListener('dblclick', e => {
+                        e.stopPropagation();
+                        const posKey = end === 'from' ? 'fromPos' : 'toPos';
+                        if (conn[posKey]) {
+                            this.saveState();
+                            delete conn[posKey];
+                            this.renderConnections();
+                            this.saveToStorage();
+                        }
+                    });
+
                     return plug;
                 };
 
-                // From plug
-                const plugFrom = createPlug(x1, y1, p1.side, color1, conn, 'from');
-                this.svgLayer.appendChild(plugFrom);
+                // Store plugs to add after all connections (so they render on top of nodes)
+                this.pendingPlugs = this.pendingPlugs || [];
+                this.pendingPlugs.push(
+                    { plug: createPlug(x1, y1, p1.side, color1, conn, 'from', plug1Size) },
+                    { plug: createPlug(x2, y2, p2.side, color2, conn, 'to', plug2Size) }
+                );
 
-                // To plug
-                const plugTo = createPlug(x2, y2, p2.side, color2, conn, 'to');
-                this.svgLayer.appendChild(plugTo);
+                // Draw waypoints only if this connection is selected
+                if (!isConnSelected || waypoints.length === 0) return;
+
+                waypoints.forEach((wp, wpIdx) => {
+                    const isWpSelected = this.selectedWaypoint &&
+                        this.selectedWaypoint.conn === conn &&
+                        this.selectedWaypoint.index === wpIdx;
+
+                    // Waypoint circle
+                    const wpCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    wpCircle.setAttribute('cx', wp.x);
+                    wpCircle.setAttribute('cy', wp.y);
+                    wpCircle.setAttribute('r', isWpSelected ? 7 : 5);
+                    wpCircle.classList.add('waypoint');
+                    if (isWpSelected) wpCircle.classList.add('selected');
+
+                    // Track for double-click detection
+                    let clickCount = 0;
+                    let clickTimer = null;
+
+                    // Click to select, drag to move (with double-click detection)
+                    wpCircle.addEventListener('mousedown', e => {
+                        e.stopPropagation();
+                        if (e.button === 0) {
+                            clickCount++;
+
+                            if (clickCount === 2) {
+                                // Double-click detected - delete waypoint
+                                clearTimeout(clickTimer);
+                                clickCount = 0;
+                                this.deleteWaypoint(conn, wpIdx);
+                                return;
+                            }
+
+                            // Wait briefly to see if it's a double-click
+                            clickTimer = setTimeout(() => {
+                                clickCount = 0;
+                            }, 300);
+
+                            // Set up for dragging (will be used if mouse moves)
+                            this.selectedWaypoint = { conn, index: wpIdx };
+                            this.isDraggingWaypoint = true;
+                            this.draggingWaypointConn = conn;
+                            this.draggingWaypointIndex = wpIdx;
+                            // Don't re-render immediately - let mouseup or mousemove handle it
+                        }
+                    });
+
+                    this.svgLayer.appendChild(wpCircle);
+
+                    // Draw bezier handles if this waypoint is selected
+                    if (isWpSelected) {
+                        const handleIn = wp.handleIn || { x: -30, y: 0 };
+                        const handleOut = wp.handleOut || { x: 30, y: 0 };
+
+                        // Handle-in line
+                        const lineIn = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        lineIn.setAttribute('x1', wp.x);
+                        lineIn.setAttribute('y1', wp.y);
+                        lineIn.setAttribute('x2', wp.x + handleIn.x);
+                        lineIn.setAttribute('y2', wp.y + handleIn.y);
+                        lineIn.classList.add('bezier-handle-line');
+                        this.svgLayer.appendChild(lineIn);
+
+                        // Handle-out line
+                        const lineOut = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        lineOut.setAttribute('x1', wp.x);
+                        lineOut.setAttribute('y1', wp.y);
+                        lineOut.setAttribute('x2', wp.x + handleOut.x);
+                        lineOut.setAttribute('y2', wp.y + handleOut.y);
+                        lineOut.classList.add('bezier-handle-line');
+                        this.svgLayer.appendChild(lineOut);
+
+                        // Handle-in control point
+                        const ctrlIn = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        ctrlIn.setAttribute('cx', wp.x + handleIn.x);
+                        ctrlIn.setAttribute('cy', wp.y + handleIn.y);
+                        ctrlIn.setAttribute('r', 4);
+                        ctrlIn.classList.add('bezier-handle');
+                        ctrlIn.addEventListener('mousedown', e => {
+                            e.stopPropagation();
+                            this.isDraggingBezierHandle = true;
+                            this.draggingBezierHandle = 'in';
+                        });
+                        this.svgLayer.appendChild(ctrlIn);
+
+                        // Handle-out control point
+                        const ctrlOut = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        ctrlOut.setAttribute('cx', wp.x + handleOut.x);
+                        ctrlOut.setAttribute('cy', wp.y + handleOut.y);
+                        ctrlOut.setAttribute('r', 4);
+                        ctrlOut.classList.add('bezier-handle');
+                        ctrlOut.addEventListener('mousedown', e => {
+                            e.stopPropagation();
+                            this.isDraggingBezierHandle = true;
+                            this.draggingBezierHandle = 'out';
+                        });
+                        this.svgLayer.appendChild(ctrlOut);
+                    }
+                });
+            });
+
+            // Render all plugs on top (after nodes layer, so they appear above nodes)
+            this.pendingPlugs.forEach(({ plug }) => {
+                this.svgLayer.appendChild(plug);
             });
         }
 
@@ -2619,6 +3079,53 @@
                 return `rgb(${Math.floor(r * factor)}, ${Math.floor(g * factor)}, ${Math.floor(b * factor)})`;
             }
             return color;
+        }
+
+        hexToRgba(color, opacity) {
+            // Convert hex or color to rgba with specified opacity
+            if (color.startsWith('#')) {
+                const r = parseInt(color.slice(1, 3), 16);
+                const g = parseInt(color.slice(3, 5), 16);
+                const b = parseInt(color.slice(5, 7), 16);
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            }
+            if (color.startsWith('rgba')) {
+                return color.replace(/[\d.]+\)$/, opacity + ')');
+            }
+            if (color.startsWith('rgb(')) {
+                return color.replace('rgb(', 'rgba(').replace(')', `, ${opacity})`);
+            }
+            return color;
+        }
+
+        highlightConnectedNodes(nodeId, highlight) {
+            // Find all nodes directly connected to this node
+            const connectedIds = new Set();
+
+            for (const conn of this.connections) {
+                if (conn.from === nodeId) {
+                    connectedIds.add(conn.to);
+                } else if (conn.to === nodeId) {
+                    connectedIds.add(conn.from);
+                }
+            }
+
+            // Apply or remove glow from connected nodes
+            connectedIds.forEach(id => {
+                const el = document.getElementById(`node-${id}`);
+                const connectedNode = this.nodes.get(id);
+                if (!el || !connectedNode) return;
+
+                if (highlight) {
+                    // Add dimmer glow based on connected node's color
+                    const glowColor = connectedNode.color !== 'none' ? connectedNode.color : 'rgba(255, 255, 255, 0.4)';
+                    el.style.setProperty('--connected-glow-color', this.hexToRgba(glowColor, 0.35));
+                    el.classList.add('connected-glow');
+                } else {
+                    el.classList.remove('connected-glow');
+                    el.style.removeProperty('--connected-glow-color');
+                }
+            });
         }
 
         startPlugDrag(conn, end, startX, startY) {
@@ -2671,6 +3178,7 @@
             });
 
             if (toRemove.length > 0) {
+                this.updateAllNodeColors();
                 this.renderConnections();
                 this.saveToStorage();
             }
@@ -2707,6 +3215,117 @@
                 }
             }
             return null;
+        }
+
+        findTOnConnection(conn, px, py) {
+            // Find approximate t parameter where point is closest to connection
+            if (!conn._bezier) return 0.5;
+
+            const b = conn._bezier;
+            let bestT = 0.5;
+            let bestDist = Infinity;
+
+            for (let t = 0; t <= 1; t += 0.02) {
+                const bx = this.bezierPoint(t, b.x1, b.cp1x, b.cp2x, b.x2);
+                const by = this.bezierPoint(t, b.y1, b.cp1y, b.cp2y, b.y2);
+                const dist = Math.hypot(px - bx, py - by);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestT = t;
+                }
+            }
+            return bestT;
+        }
+
+        findWaypointInsertIndex(conn, t) {
+            // Find where to insert a new waypoint based on t parameter
+            if (!conn.waypoints || conn.waypoints.length === 0) return 0;
+
+            // For now, simple approach: waypoints divide the curve evenly
+            const numSegments = conn.waypoints.length + 1;
+            const segmentIndex = Math.floor(t * numSegments);
+            return Math.min(segmentIndex, conn.waypoints.length);
+        }
+
+        deleteWaypoint(conn, index) {
+            if (conn.waypoints && conn.waypoints.length > index) {
+                this.saveState();
+                conn.waypoints.splice(index, 1);
+                if (this.selectedWaypoint &&
+                    this.selectedWaypoint.conn === conn &&
+                    this.selectedWaypoint.index === index) {
+                    this.selectedWaypoint = null;
+                }
+                this.renderConnections();
+                this.saveToStorage();
+            }
+        }
+
+        connectionIntersectsBox(conn, minX, minY, maxX, maxY) {
+            // Check if any point along the connection is within the box
+            if (!conn._bezier) return false;
+
+            const b = conn._bezier;
+            for (let t = 0; t <= 1; t += 0.05) {
+                const bx = this.bezierPoint(t, b.x1, b.cp1x, b.cp2x, b.x2);
+                const by = this.bezierPoint(t, b.y1, b.cp1y, b.cp2y, b.y2);
+
+                if (bx >= minX && bx <= maxX && by >= minY && by <= maxY) {
+                    return true;
+                }
+            }
+
+            // Also check waypoints
+            if (conn.waypoints) {
+                for (const wp of conn.waypoints) {
+                    if (wp.x >= minX && wp.x <= maxX && wp.y >= minY && wp.y <= maxY) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        getPerimeterPosition(nodeId, worldX, worldY) {
+            // Given a world coordinate, find which edge and offset along that edge is closest
+            const node = this.nodes.get(nodeId);
+            const el = document.getElementById(`node-${nodeId}`);
+            if (!node || !el) return null;
+
+            const w = el.offsetWidth;
+            const h = el.offsetHeight;
+            const cx = node.x + w / 2;
+            const cy = node.y + h / 2;
+            const hw = w / 2 + 2;
+            const hh = h / 2 + 2;
+
+            // Calculate distance to each edge and find the closest
+            const edges = [
+                { edge: 'top', dist: Math.abs(worldY - (cy - hh)), x: worldX, y: cy - hh },
+                { edge: 'bottom', dist: Math.abs(worldY - (cy + hh)), x: worldX, y: cy + hh },
+                { edge: 'left', dist: Math.abs(worldX - (cx - hw)), x: cx - hw, y: worldY },
+                { edge: 'right', dist: Math.abs(worldX - (cx + hw)), x: cx + hw, y: worldY }
+            ];
+
+            // Sort by distance
+            edges.sort((a, b) => a.dist - b.dist);
+            const closest = edges[0];
+
+            // Calculate offset along the edge (0-1 range, 0.5 is center)
+            let offset;
+            if (closest.edge === 'top' || closest.edge === 'bottom') {
+                // Horizontal edge: offset based on x position
+                offset = ((worldX - cx) / w) + 0.5;
+            } else {
+                // Vertical edge: offset based on y position
+                offset = ((worldY - cy) / h) + 0.5;
+            }
+
+            // Clamp offset to 0-1 range
+            offset = Math.max(0, Math.min(1, offset));
+
+            return { edge: closest.edge, offset };
         }
 
         pointNearLine(px, py, x1, y1, x2, y2, threshold) {
@@ -2914,11 +3533,6 @@
                     // Bold/Italic
                     document.getElementById('btn-bold').classList.toggle('active', node.bold);
                     document.getElementById('btn-italic').classList.toggle('active', node.italic);
-
-                    // Color
-                    document.querySelectorAll('#text-inspector .color-btn').forEach(btn => {
-                        btn.classList.toggle('active', btn.dataset.color === (node.color || 'none'));
-                    });
                 }
             } else {
                     this.textInspector.classList.remove('visible');
@@ -3045,6 +3659,7 @@
 
                 this.connections = parsed.connections || [];
                 this.nodeIdCounter = parsed.nodeIdCounter || this.nodes.size;
+                this.updateAllNodeColors();
 
                 if (parsed.view) {
                     this.scale = parsed.view.scale || 1;
@@ -3091,6 +3706,7 @@
                     }
 
                     this.updateTransform();
+                    this.updateAllNodeColors();
                     this.renderConnections();
                     this.updateUI();
                     this.updateMinimap();
