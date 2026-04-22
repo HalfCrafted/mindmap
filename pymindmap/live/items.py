@@ -55,8 +55,12 @@ if TYPE_CHECKING:
 # hub near the periphery ends up bigger than its own parent.
 PADDING_X = 14        # base horizontal padding
 PADDING_Y = 10        # base vertical padding
-TITLE_SIZE = 12       # leaf (outer) title point size
-BODY_SIZE = 10
+# Font sizes are in LOGICAL PIXELS, not points. QFont.setPointSize is
+# DPI-dependent and produces different scene metrics across displays — when
+# the window moves to a higher-DPI screen the cached node widths become too
+# small for the newly-larger glyphs. setPixelSize sidesteps that entirely.
+TITLE_SIZE = 15       # leaf title pixel size
+BODY_SIZE = 13
 BODY_MAX_LINES = 12    # inline body preview cap — grows the card to fit
 MIN_H = 40             # pill aesthetic floor
 MAX_CORNER_R = 22      # cap so tall cards stay rounded-rect, not oval
@@ -71,8 +75,8 @@ MAX_CORNER_R = 22      # cap so tall cards stay rounded-rect, not oval
 # zoomed-up version of a twig node. No independent font tricks, no weight
 # jumps — just uniform scaling.
 WEIGHT_BOOST = 1.5    # root ≈ 2.5× leaves across the board
-MAX_TITLE_PT = 26     # cap on the root title
-MAX_BODY_PT = 18
+MAX_TITLE_PX = 32     # cap on the root title (pixel size)
+MAX_BODY_PX = 22
 SAFETY_MAX_W = 680    # safety net for pathological titles
 
 # Colors
@@ -127,12 +131,12 @@ class LiveNodeItem(QGraphicsObject):
 
     def _title_font(self) -> QFont:
         scale = self.weight_scale()
-        size = min(MAX_TITLE_PT, max(TITLE_SIZE, int(round(TITLE_SIZE * scale))))
+        size = min(MAX_TITLE_PX, max(TITLE_SIZE, int(round(TITLE_SIZE * scale))))
         f = QFont()
-        f.setPointSize(size)
-        # Same weight everywhere — no bold jump at the root. Bold makes the
-        # glyph strokes fatter at the same point size, which is exactly what
-        # produces the "crunched/blurry" look when zoomed out.
+        # Pixel size (not point size) keeps metrics consistent across
+        # displays with different DPIs — otherwise the cached node widths
+        # go out of sync when the window is dragged to another screen.
+        f.setPixelSize(size)
         f.setWeight(QFont.Medium)
         f.setHintingPreference(QFont.PreferNoHinting)
         f.setStyleStrategy(QFont.PreferAntialias)
@@ -140,9 +144,9 @@ class LiveNodeItem(QGraphicsObject):
 
     def _body_font(self) -> QFont:
         scale = self.weight_scale()
-        size = min(MAX_BODY_PT, max(BODY_SIZE, int(round(BODY_SIZE * scale))))
+        size = min(MAX_BODY_PX, max(BODY_SIZE, int(round(BODY_SIZE * scale))))
         f = QFont()
-        f.setPointSize(size)
+        f.setPixelSize(size)
         f.setWeight(QFont.Normal)
         f.setHintingPreference(QFont.PreferNoHinting)
         f.setStyleStrategy(QFont.PreferAntialias)
@@ -180,13 +184,13 @@ class LiveNodeItem(QGraphicsObject):
         )
 
         # Degree badge (top-right) — pill-shaped.
-        badge_pt = min(18, max(9, int(round(10 * math.sqrt(scale)))))
+        badge_px = min(22, max(11, int(round(13 * math.sqrt(scale)))))
         badge_font = QFont()
-        badge_font.setPointSize(badge_pt)
+        badge_font.setPixelSize(badge_px)
         badge_font.setWeight(QFont.Bold)
         badge_fm = QFontMetricsF(badge_font)
         badge_w = max(24.0, badge_fm.horizontalAdvance(str(deg)) + 14.0) if deg > 0 else 0.0
-        badge_h = max(20.0, badge_pt + 10)
+        badge_h = max(20.0, badge_px + 8)
 
         # Collapse chevron (top-left) — same pill as the badge.
         has_children = (self._scene is not None
@@ -508,8 +512,8 @@ def _elide(text: str, max_width: float, fm: QFontMetricsF) -> str:
     return text + ell
 
 
-CONN_MIN_WIDTH = 0.7
-CONN_MAX_WIDTH = 6.5
+CONN_MIN_WIDTH = 0.6
+CONN_MAX_WIDTH = 9.5
 
 
 class LiveConnectionItem(ConnectionItem):
@@ -529,9 +533,11 @@ class LiveConnectionItem(ConnectionItem):
             heavy = max(w_from, w_to)
             max_w = scene.max_subtree_weight()
             ratio = (math.log1p(heavy) / math.log1p(max_w)) if max_w > 1 else 0.0
-            # Cubic-ish ramp makes trunk edges fat and twig edges hairline,
-            # rather than the old gentle linear taper.
-            width = THEME.conn_width * (0.35 + 2.8 * ratio ** 1.3)
+            # Wide dynamic range: trunk edges render fat (≈9px for a 2px
+            # base), outer twigs are hairline (≈0.6px). ``ratio ** 1.6``
+            # keeps the mid-range tapering visible instead of flattening
+            # out once you're a few hops from the root.
+            width = THEME.conn_width * (0.25 + 4.3 * ratio ** 1.6)
             width = max(CONN_MIN_WIDTH, min(CONN_MAX_WIDTH, width))
         else:
             width = THEME.conn_width

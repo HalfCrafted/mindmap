@@ -121,9 +121,13 @@ def route_bezier(conn: Connection, nodes: dict[int, Node]) -> List[Tuple[float, 
     source = (from_node.center() if not conn.waypoints
               else (conn.waypoints[-1].x, conn.waypoints[-1].y))
     tx, ty, ttan = anchor_point(to_node, conn.to_anchor, source)
-    # For the to-node, we want the tangent pointing *into* the node along its edge,
-    # which means the "incoming" tangent should be -ttan.
-    anchors.append((tx, ty, ttan[0], ttan[1], -ttan[0], -ttan[1]))
+    # c2 should sit on the "coming from" side of p3 — i.e., *outside* the
+    # to-node, along the outward normal. The cubic tangent at p3 is
+    # (p3 - c2), so offsetting c2 by +ttan*h makes the curve enter p3
+    # moving along -ttan (inward into the node). Using -ttan here placed
+    # c2 *inside* the node, producing a loop and throwing the midpoint
+    # (where the arrowhead sits) off-centre.
+    anchors.append((tx, ty, ttan[0], ttan[1], ttan[0], ttan[1]))
 
     # Build cubic segments.
     pts: List[Tuple[float, float]] = []

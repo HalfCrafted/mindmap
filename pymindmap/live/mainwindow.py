@@ -252,6 +252,10 @@ class LiveMainWindow(QMainWindow):
         self.scene.layout_started.connect(lambda: self._status_label.setText("Arranging…"))
         self.scene.layout_finished.connect(self._refresh_counts)
         self.view.zoom_changed.connect(self._on_zoom_changed)
+
+        self._connected_screen = None
+        # ``windowHandle()`` isn't available until after ``show()``, so we
+        # wire the screen-change listener in ``showEvent`` instead of here.
         self.undo_stack.cleanChanged.connect(self._update_title)
         self.undo_stack.indexChanged.connect(lambda *_: self._update_title())
 
@@ -897,3 +901,26 @@ class LiveMainWindow(QMainWindow):
             e.accept()
         else:
             e.ignore()
+
+    # ---- display-change handling ----------------------------------------
+    def showEvent(self, e):
+        super().showEvent(e)
+        h = self.windowHandle()
+        if h is not None and h.screen() is not self._connected_screen:
+            if self._connected_screen is not None:
+                try:
+                    h.screenChanged.disconnect(self._on_screen_changed)
+                except (TypeError, RuntimeError):
+                    pass
+            h.screenChanged.connect(self._on_screen_changed)
+            self._connected_screen = h.screen()
+
+    def _on_screen_changed(self, _screen):
+        """Rebuild every node's cached metrics when the DPI changes.
+
+        Font metrics are computed against the current paint device, so
+        moving between displays with different device-pixel ratios can
+        leave node widths stale. Forcing ``_refresh_node_sizes`` picks up
+        the new screen's metrics.
+        """
+        self.scene._refresh_node_sizes()

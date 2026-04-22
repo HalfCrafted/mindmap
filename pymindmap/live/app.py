@@ -5,6 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import QApplication
 
@@ -18,6 +19,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("path", nargs="?", help="JSON file to open")
     args = parser.parse_args(argv)
+
+    # Consistent rendering across displays with different DPIs. Must be set
+    # BEFORE the QApplication is constructed.
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
