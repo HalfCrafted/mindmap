@@ -12,35 +12,67 @@ from .model import Connection, EdgeAnchor, Node, Waypoint
 def anchor_point(node: Node, anchor: EdgeAnchor | None, toward: Tuple[float, float]) -> Tuple[float, float, Tuple[float, float]]:
     """Return (px, py, tangent) for a connection endpoint on *node*.
 
-    If anchor is None or 'auto', pick the edge closest to *toward* (the other
-    endpoint). The returned tangent is a unit vector pointing outward from the
-    edge, used to shape the bezier handle.
+    Auto-anchor behaviour:
+      • Pick the side of the bounding box the line from ``node.center()`` to
+        ``toward`` exits through.
+      • Place the anchor at the **exact exit point** of that line, not the
+        midpoint of the side. So diagonal approaches meet the pill near the
+        appropriate end of the edge, making the noodle visually land where
+        the eye expects — not the center of the nearest face.
+      • Clamp the slide to a small inset from the corner so anchors never
+        fall onto the rounded portion of the pill.
     """
     cx, cy = node.center()
-    left, right = node.x, node.x + node.width
-    top, bottom = node.y, node.y + node.height
+    w, h = max(1.0, node.width), max(1.0, node.height)
+    left, right = node.x, node.x + w
+    top, bottom = node.y, node.y + h
 
     if anchor and anchor.edge != "auto":
         edge = anchor.edge
         off = max(0.0, min(1.0, anchor.offset))
-    else:
-        # Pick edge that points most directly at `toward`.
-        dx = toward[0] - cx
-        dy = toward[1] - cy
-        if abs(dx) >= abs(dy):
-            edge = "right" if dx >= 0 else "left"
-        else:
-            edge = "bottom" if dy >= 0 else "top"
-        off = 0.5
+        if edge == "left":
+            return left, top + off * h, (-1.0, 0.0)
+        if edge == "right":
+            return right, top + off * h, (1.0, 0.0)
+        if edge == "top":
+            return left + off * w, top, (0.0, -1.0)
+        return left + off * w, bottom, (0.0, 1.0)
 
-    if edge == "left":
-        return left, top + off * node.height, (-1.0, 0.0)
-    if edge == "right":
-        return right, top + off * node.height, (1.0, 0.0)
-    if edge == "top":
-        return left + off * node.width, top, (0.0, -1.0)
-    # bottom
-    return left + off * node.width, bottom, (0.0, 1.0)
+    dx = toward[0] - cx
+    dy = toward[1] - cy
+    if dx == 0 and dy == 0:
+        # No preferred direction — default to right edge midpoint.
+        return right, cy, (1.0, 0.0)
+
+    # Intersection parameter t where the ray from (cx, cy) in direction
+    # (dx, dy) crosses each side of the bounding box. The side with the
+    # smallest positive t is the exit side.
+    inf = float("inf")
+    t_right = (w * 0.5) / dx if dx > 0 else inf
+    t_left = (-w * 0.5) / dx if dx < 0 else inf
+    t_bottom = (h * 0.5) / dy if dy > 0 else inf
+    t_top = (-h * 0.5) / dy if dy < 0 else inf
+
+    # Keep anchor off the corner arc by at most a small inset measured in
+    # the edge's long dimension. 20% on each end ≈ straight edge for the
+    # pill geometry the live variant uses.
+    inset = 0.18
+
+    if t_right <= t_bottom and t_right <= t_top and t_right <= t_left:
+        y = cy + t_right * dy
+        y = min(bottom - inset * h, max(top + inset * h, y))
+        return right, y, (1.0, 0.0)
+    if t_left <= t_bottom and t_left <= t_top:
+        y = cy + t_left * dy
+        y = min(bottom - inset * h, max(top + inset * h, y))
+        return left, y, (-1.0, 0.0)
+    if t_bottom <= t_top:
+        x = cx + t_bottom * dx
+        x = min(right - inset * w, max(left + inset * w, x))
+        return x, bottom, (0.0, 1.0)
+    x = cx + t_top * dx
+    x = min(right - inset * w, max(left + inset * w, x))
+    return x, top, (0.0, -1.0)
 
 
 def route_bezier(conn: Connection, nodes: dict[int, Node]) -> List[Tuple[float, float]]:
@@ -84,8 +116,9 @@ def route_bezier(conn: Connection, nodes: dict[int, Node]) -> List[Tuple[float, 
             tx, ty = tx / mag, ty / mag
             anchors.append((w.x, w.y, tx, ty, -tx, -ty))
 
-    # To-node
-    source = (to_node.center() if not conn.waypoints
+    # To-node — ``source`` is what the to-node's anchor is pointing *back*
+    # toward, i.e. the previous node/waypoint on the path.
+    source = (from_node.center() if not conn.waypoints
               else (conn.waypoints[-1].x, conn.waypoints[-1].y))
     tx, ty, ttan = anchor_point(to_node, conn.to_anchor, source)
     # For the to-node, we want the tangent pointing *into* the node along its edge,

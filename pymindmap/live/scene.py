@@ -28,11 +28,11 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPen
 from PyQt5.QtWidgets import QGraphicsScene
 
-from ..items import ConnectionItem, WaypointItem  # reuse bezier connection
+from ..items import ConnectionItem, WaypointItem  # reuse bezier + waypoint
 from ..layout import fruchterman_reingold
 from ..model import Connection, Graph, Node
 
-from .items import LiveNodeItem
+from .items import LiveConnectionItem, LiveNodeItem
 
 
 GRID_BG = "#0b0b10"
@@ -63,6 +63,7 @@ class LiveMindMapScene(QGraphicsScene):
         # BFS-tree bookkeeping for collapse feature.
         self._parent: Dict[int, Optional[int]] = {}
         self._children: Dict[int, Set[int]] = defaultdict(set)
+        self._subtree_weight: Dict[int, int] = {}
         self._hidden: Set[int] = set()
 
         self._layout_timer = QTimer(self)
@@ -88,41 +89,134 @@ class LiveMindMapScene(QGraphicsScene):
     def degree_of(self, nid: int) -> int:
         return self._degree.get(nid, 0)
 
+    def depth_of(self, nid: int) -> int:
+        """Distance (in BFS-tree hops) from *nid* to the root of its component."""
+        d = 0
+        cur = nid
+        seen: Set[int] = set()
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            p = self._parent.get(cur)
+            if p is None:
+                return d
+            cur = p
+            d += 1
+        return d
+
+    def subtree_weight_of(self, nid: int) -> int:
+        """Node count of the subtree rooted at *nid* (itself + all descendants).
+
+        Leaves weigh 1; a mid-hub weighs the total population beneath it; the
+        root of a component weighs the whole component. This is the metric
+        the live card sizing / edge tapering reads to give the graph its
+        "thick trunk, thin twigs" silhouette.
+        """
+        return self._subtree_weight.get(nid, 1)
+
+    def max_subtree_weight(self) -> int:
+        if not self._subtree_weight:
+            return 1
+        return max(self._subtree_weight.values())
+
+    def _recompute_subtree_weights(self):
+        """Post-order weight sum; called whenever the tree changes."""
+        weights: Dict[int, int] = {}
+
+        def compute(nid: int) -> int:
+            if nid in weights:
+                return weights[nid]
+            w = 1
+            for c in self._children.get(nid, ()):
+                w += compute(c)
+            weights[nid] = w
+            return w
+
+        for nid in self.graph.nodes:
+            compute(nid)
+        self._subtree_weight = weights
+
     # ---- BFS tree / collapse bookkeeping ---------------------------------
     def _recompute_tree(self):
-        """Root = highest-degree node. BFS assigns a parent to every reachable
-        node; leftover components are rooted at their own highest-degree node.
+        """Build a spanning tree that honours the user-drawn hierarchy.
 
-        ``self._children`` then gives the "outer branches" each node owns —
-        that's what gets hidden when a node is collapsed.
+        The graph has two kinds of edges: **directed** (a parent/child
+        arrow) and **undirected** (a peer link, no hierarchy implied). The
+        spanning tree is built by:
+
+          1. Picking one global root per connected component: the node with
+             the largest *directed* subtree reach (ties → highest degree,
+             then lowest id). Nodes with zero incoming directed edges are
+             preferred so real hierarchy roots win.
+          2. Running a BFS from that root that **prefers directed edges**
+             over undirected ones at every expansion step. This way a node
+             becomes the child of its directed parent whenever possible,
+             and only falls through to an undirected neighbour when no
+             directed path claims it first.
         """
         self._parent = {}
         self._children = defaultdict(set)
         if not self.graph.nodes:
+            self._recompute_subtree_weights()
+            self._recompute_hidden()
             return
 
-        adj: Dict[int, Set[int]] = defaultdict(set)
+        directed_fwd: Dict[int, Set[int]] = defaultdict(set)
+        undirected_nbr: Dict[int, Set[int]] = defaultdict(set)
+        in_dir: Dict[int, int] = defaultdict(int)
         for c in self.graph.connections:
-            adj[c.from_id].add(c.to_id)
-            adj[c.to_id].add(c.from_id)
+            if c.directed:
+                directed_fwd[c.from_id].add(c.to_id)
+                in_dir[c.to_id] += 1
+            else:
+                undirected_nbr[c.from_id].add(c.to_id)
+                undirected_nbr[c.to_id].add(c.from_id)
+
+        def directed_reach(start: int) -> int:
+            seen = {start}
+            q = deque([start])
+            while q:
+                cur = q.popleft()
+                for nb in directed_fwd.get(cur, ()):
+                    if nb not in seen:
+                        seen.add(nb)
+                        q.append(nb)
+            return len(seen)
 
         remaining = set(self.graph.nodes.keys())
         while remaining:
-            # Pick a root for this connected component: highest degree, then
-            # lowest id for deterministic tie-break.
-            root = max(remaining, key=lambda nid: (self._degree[nid], -nid))
+            # Prefer candidates with no incoming directed edge (real roots);
+            # if none survive, fall back to any node in the remainder.
+            roots_pool = [n for n in remaining if in_dir.get(n, 0) == 0]
+            if not roots_pool:
+                roots_pool = list(remaining)
+            # Pick the one whose *directed* reach is largest; degree is a
+            # secondary tie-break so components without any directed edges
+            # still behave sensibly.
+            root = max(
+                roots_pool,
+                key=lambda nid: (directed_reach(nid), self._degree[nid], -nid),
+            )
             self._parent[root] = None
-            q = deque([root])
             remaining.discard(root)
+            q = deque([root])
             while q:
                 cur = q.popleft()
-                for nb in adj[cur]:
+                # Directed children first — honours the arrow.
+                for nb in sorted(directed_fwd.get(cur, ())):
+                    if nb in remaining:
+                        self._parent[nb] = cur
+                        self._children[cur].add(nb)
+                        remaining.discard(nb)
+                        q.append(nb)
+                # Undirected neighbours second — fills in peers.
+                for nb in sorted(undirected_nbr.get(cur, ())):
                     if nb in remaining:
                         self._parent[nb] = cur
                         self._children[cur].add(nb)
                         remaining.discard(nb)
                         q.append(nb)
 
+        self._recompute_subtree_weights()
         self._recompute_hidden()
 
     def _recompute_hidden(self):
@@ -196,7 +290,7 @@ class LiveMindMapScene(QGraphicsScene):
         return item
 
     def _add_connection_item(self, conn: Connection) -> ConnectionItem:
-        item = ConnectionItem(conn, self)
+        item = LiveConnectionItem(conn, self)
         self.addItem(item)
         self.connection_items.append(item)
         if self._emphasis is not None:
@@ -257,14 +351,16 @@ class LiveMindMapScene(QGraphicsScene):
         self.schedule_layout()
 
     def _refresh_node_sizes(self):
-        """Recompute all node sizes from current degrees + bodies."""
+        """Recompute all node sizes from current depths + bodies."""
         for item in self.node_items.values():
             item.prepareGeometryChange()
             item.recompute_size()
             item.update()
-        # Connections must re-route since endpoint bounds changed.
+        # Connections must re-route since endpoint bounds changed; also
+        # re-paint so width reflects any depth change.
         for ci in self.connection_items:
             ci.rebuild_path()
+            ci.update()
 
     def refresh_connections_for(self, node_id: int):
         for ci in self.connection_items:
@@ -345,6 +441,8 @@ class LiveMindMapScene(QGraphicsScene):
             sub,
             iterations=LAYOUT_ITERATIONS,
             seed=_structure_seed(sub),
+            compactness=1.25,
+            center_force=0.75,
         )
 
         if not any(_moved(starts.get(nid), ends[nid]) for nid in ends):
@@ -458,7 +556,7 @@ def _moved(a, b) -> bool:
 
 
 def _structure_seed(graph) -> int:
-    """Deterministic seed from the set of node ids and edges.
+    """Deterministic seed from node ids + edges.
 
     Identical graphs produce identical layouts, so selecting a node (or any
     non-structural interaction) never shifts anything. Add/remove a node or
@@ -467,3 +565,5 @@ def _structure_seed(graph) -> int:
     nid_tuple = tuple(sorted(graph.nodes.keys()))
     edge_tuple = tuple(sorted((c.from_id, c.to_id) for c in graph.connections))
     return hash((nid_tuple, edge_tuple)) & 0x7FFFFFFF
+
+

@@ -53,6 +53,10 @@ class Connection:
     from_anchor: Optional[EdgeAnchor] = None
     to_anchor: Optional[EdgeAnchor] = None
     waypoints: List[Waypoint] = field(default_factory=list)
+    # When True, the edge represents a from→to parent/child relationship
+    # and is drawn with an arrowhead. When False, it's a peer/bidirectional
+    # link with no implied hierarchy.
+    directed: bool = False
 
 
 @dataclass

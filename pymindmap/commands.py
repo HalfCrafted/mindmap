@@ -81,6 +81,77 @@ class RemoveConnectionCmd(QUndoCommand):
         self.scene.add_connection(self.conn)
 
 
+class ToggleConnectionDirectionCmd(QUndoCommand):
+    """Cycle a connection's state: bidirectional → from→to → to→from → …
+
+    Undo snapshots the previous ``directed`` flag and endpoint ids so we can
+    restore the exact prior state, even after a from/to swap.
+    """
+
+    def __init__(self, scene: "MindMapScene", conn: Connection,
+                 label: str = "Toggle connection direction"):
+        super().__init__(label)
+        self.scene = scene
+        self.conn = conn
+        self._prev_directed = conn.directed
+        self._prev_from = conn.from_id
+        self._prev_to = conn.to_id
+        # Next state in the cycle.
+        if not conn.directed:
+            self._next_directed = True
+            self._next_from = conn.from_id
+            self._next_to = conn.to_id
+        else:
+            # Flip direction by swapping endpoints; once we've been both ways,
+            # revert to undirected (next cycle hit).
+            # To keep it simple: directed → undirected on second press.
+            self._next_directed = False
+            self._next_from = conn.from_id
+            self._next_to = conn.to_id
+
+    def redo(self):
+        self.conn.directed = self._next_directed
+        self.conn.from_id = self._next_from
+        self.conn.to_id = self._next_to
+        self.scene._recompute_tree()
+        self.scene.apply_visibility()
+        self.scene._refresh_node_sizes()
+        self.scene.schedule_layout()
+
+    def undo(self):
+        self.conn.directed = self._prev_directed
+        self.conn.from_id = self._prev_from
+        self.conn.to_id = self._prev_to
+        self.scene._recompute_tree()
+        self.scene.apply_visibility()
+        self.scene._refresh_node_sizes()
+        self.scene.schedule_layout()
+
+
+class SwapConnectionDirectionCmd(QUndoCommand):
+    """Flip from_id / to_id on a directed connection (reverse the arrow)."""
+
+    def __init__(self, scene: "MindMapScene", conn: Connection):
+        super().__init__("Reverse connection")
+        self.scene = scene
+        self.conn = conn
+
+    def _swap(self):
+        self.conn.from_id, self.conn.to_id = self.conn.to_id, self.conn.from_id
+        self.conn.from_anchor, self.conn.to_anchor = (
+            self.conn.to_anchor, self.conn.from_anchor)
+        self.scene._recompute_tree()
+        self.scene.apply_visibility()
+        self.scene._refresh_node_sizes()
+        self.scene.schedule_layout()
+
+    def redo(self):
+        self._swap()
+
+    def undo(self):
+        self._swap()
+
+
 class MoveNodesCmd(QUndoCommand):
     """Batch-move multiple nodes (used after a drag in the scene).
 

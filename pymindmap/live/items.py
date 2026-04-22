@@ -37,33 +37,43 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from ..items import ConnectionItem
 from ..model import Node
+from ..theme import THEME
 
 if TYPE_CHECKING:
     from .scene import LiveMindMapScene
 
 
-# Card layout constants — leaves at the base size; hubs scale EXPONENTIALLY.
-# Each additional connection multiplies the card's linear dimensions (and title
-# font) by ``SCALE_BASE``. After ``SCALE_CAP`` is reached we stop growing to
-# avoid pathological cases. Rationale: in a neural-network-like mind map, an
-# idea linked to 6 others should look *dramatically* more prominent than one
-# with 1 or 2 links — not just 30% bigger.
-# Cards are sized to their CONTENT — width = text + symmetric gutters, no fixed
-# minimum. Gutters scale with degree so hubs get more breathing room; leaves
-# hug their text tightly.
-PADDING_X = 14        # base horizontal padding (scales with degree)
+# Card sizing is driven by DEPTH FROM ROOT, not degree.
+#
+#   scale(depth) = 1.0 + ROOT_BOOST * DEPTH_DECAY ** depth
+#
+# So the root is visually dominant, first-level branches are still prominent,
+# and outer twigs converge on a consistent leaf size. This reads as a tree
+# radiating outward and avoids the degree-based edge case where a medium-rank
+# hub near the periphery ends up bigger than its own parent.
+PADDING_X = 14        # base horizontal padding
 PADDING_Y = 10        # base vertical padding
-TITLE_SIZE = 12       # base title point size (degree 0)
+TITLE_SIZE = 12       # leaf (outer) title point size
 BODY_SIZE = 10
-BODY_MAX_LINES = 4
-MIN_H = 44            # pill aesthetic floor
+BODY_MAX_LINES = 12    # inline body preview cap — grows the card to fit
+MIN_H = 40             # pill aesthetic floor
+MAX_CORNER_R = 22      # cap so tall cards stay rounded-rect, not oval
 
-SCALE_BASE = 1.20     # per-connection linear multiplier
-SCALE_CAP = 3.4       # cap reached near degree 7
-MAX_TITLE_PT = 40
+# Size scales with the **subtree weight** of the node (itself + all
+# descendants), log-normalized to the biggest subtree in the graph. A leaf
+# (weight 1) sits at scale 1.0; the root of the largest component sits at
+# scale 1 + WEIGHT_BOOST. Everything in between tapers smoothly — thick
+# trunks near the root, thin twigs at the leaves.
+# Single scale curve driven by subtree weight — everything (padding, font,
+# border) scales together at the same ratio so a trunk node is a literal
+# zoomed-up version of a twig node. No independent font tricks, no weight
+# jumps — just uniform scaling.
+WEIGHT_BOOST = 1.5    # root ≈ 2.5× leaves across the board
+MAX_TITLE_PT = 26     # cap on the root title
 MAX_BODY_PT = 18
-SAFETY_MAX_W = 820    # safety net for pathological titles
+SAFETY_MAX_W = 680    # safety net for pathological titles
 
 # Colors
 CARD_BG = "#16161f"
@@ -99,36 +109,43 @@ class LiveNodeItem(QGraphicsObject):
     def degree(self) -> int:
         return self._scene.degree_of(self.node.id)
 
-    def degree_scale(self) -> float:
-        """Exponential multiplicative scale from degree. 1.20^degree, capped.
+    def _weight_ratio(self) -> float:
+        """Normalised 0..1 subtree weight — shared by both scale curves."""
+        w = self._scene.subtree_weight_of(self.node.id)
+        max_w = self._scene.max_subtree_weight()
+        if max_w <= 1:
+            return 0.0
+        return math.log1p(w) / math.log1p(max_w)
 
-        Values: deg 0→1.00, 1→1.20, 2→1.44, 3→1.73, 4→2.07, 5→2.49, 6→2.99,
-        7→3.40 (cap), 8+→3.40. Each connection boosts linear size by 20%
-        (area by ~44%), so well-linked hubs are visually dominant.
-        """
-        return min(SCALE_CAP, SCALE_BASE ** self.degree())
+    def weight_scale(self) -> float:
+        """Single proportional scale — everything on the card rides this."""
+        return 1.0 + WEIGHT_BOOST * self._weight_ratio()
+
+    # Back-compat aliases.
+    depth_scale = weight_scale
+    text_scale = weight_scale
 
     def _title_font(self) -> QFont:
-        scale = self.degree_scale()
+        scale = self.weight_scale()
         size = min(MAX_TITLE_PT, max(TITLE_SIZE, int(round(TITLE_SIZE * scale))))
         f = QFont()
         f.setPointSize(size)
-        # Weight also steps up with scale.
-        if scale >= 2.0:
-            f.setWeight(QFont.Bold)
-        elif scale >= 1.3:
-            f.setWeight(QFont.DemiBold)
-        else:
-            f.setWeight(QFont.Medium)
+        # Same weight everywhere — no bold jump at the root. Bold makes the
+        # glyph strokes fatter at the same point size, which is exactly what
+        # produces the "crunched/blurry" look when zoomed out.
+        f.setWeight(QFont.Medium)
+        f.setHintingPreference(QFont.PreferNoHinting)
+        f.setStyleStrategy(QFont.PreferAntialias)
         return f
 
     def _body_font(self) -> QFont:
-        # Body grows gently (sqrt of title scale) so it stays readable
-        # rather than exploding alongside the title.
-        scale = math.sqrt(self.degree_scale())
+        scale = self.weight_scale()
         size = min(MAX_BODY_PT, max(BODY_SIZE, int(round(BODY_SIZE * scale))))
         f = QFont()
         f.setPointSize(size)
+        f.setWeight(QFont.Normal)
+        f.setHintingPreference(QFont.PreferNoHinting)
+        f.setStyleStrategy(QFont.PreferAntialias)
         return f
 
     def recompute_size(self):
@@ -140,10 +157,13 @@ class LiveNodeItem(QGraphicsObject):
         long text gets a wider pill, but both use the same margin rules.
         """
         deg = self.degree()
-        scale = self.degree_scale()
+        scale = self.depth_scale()
 
-        # Padding scales gently with degree — hubs get more breathing room.
-        pad_scale = 0.75 + 0.25 * scale   # scale 1.0→1.00, 2.0→1.25, 3.0→1.50
+        # Padding scales dramatically toward the root — this is what makes
+        # the hierarchy visible at a glance. Leaves hug their text, trunks
+        # get fat pill bodies with generous margins.
+        ratio = self._weight_ratio()   # 0..1
+        pad_scale = 1.0 + 1.8 * ratio  # leaf 1.0 → root 2.8
         pad_x = PADDING_X * pad_scale
         pad_y = PADDING_Y * pad_scale
 
@@ -199,9 +219,13 @@ class LiveNodeItem(QGraphicsObject):
             )
 
         # Target width: text + symmetric gutters, never narrower than what
-        # the longest word needs.
-        target_w = text_w + 2 * gutter
-        target_w = max(target_w, longest_word_w + 2 * gutter + 4)
+        # the longest word needs. Slack covers the gap between
+        # ``horizontalAdvance`` (what we measured) and the actual pixel width
+        # ``drawText`` needs — without it, the last word occasionally wraps
+        # to an unallocated second line and gets clipped.
+        text_slack = 6.0
+        target_w = text_w + 2 * gutter + text_slack
+        target_w = max(target_w, longest_word_w + 2 * gutter + text_slack)
         target_w = min(target_w, SAFETY_MAX_W)
 
         title_h = title_fm.lineSpacing() * len(title_lines)
@@ -251,15 +275,25 @@ class LiveNodeItem(QGraphicsObject):
 
     def shape(self) -> QPainterPath:
         p = QPainterPath()
-        p.addRoundedRect(0, 0, self.node.width, self.node.height, 10, 10)
+        r = self._corner_radius()
+        p.addRoundedRect(0, 0, self.node.width, self.node.height, r, r)
         return p
+
+    def _corner_radius(self) -> float:
+        """Pill when short, softly rounded rect when tall.
+
+        Capping at MAX_CORNER_R prevents the "oval" silhouette that tall
+        body-heavy cards fell into, which pushed text outside the filled
+        region near the curved top/bottom.
+        """
+        return min(MAX_CORNER_R, min(self.node.width, self.node.height) / 2.0)
 
     # ---- paint ------------------------------------------------------------
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: Optional[QWidget] = None):
         painter.setRenderHint(QPainter.Antialiasing)
 
         w, h = self.node.width, self.node.height
-        radius = min(w, h) / 2.0        # true pill shape — fully rounded ends
+        radius = self._corner_radius()
         card_rect = QRectF(0.0, 0.0, w, h)
 
         # ---- Drop shadow ----------------------------------------------------
@@ -281,7 +315,9 @@ class LiveNodeItem(QGraphicsObject):
         body_grad.setColorAt(1.0, bot_col)
         painter.setBrush(QBrush(body_grad))
         border_col = CARD_BORDER_SEL if self.isSelected() else CARD_BORDER
-        painter.setPen(QPen(QColor(border_col), 1.3))
+        # Thicker stroke near the trunk, hairline at the twigs.
+        border_w = 1.0 + 2.0 * self._weight_ratio()
+        painter.setPen(QPen(QColor(border_col), border_w))
         painter.drawRoundedRect(card_rect, radius, radius)
 
         # ---- Inner glass highlight (bevel) ---------------------------------
@@ -470,6 +506,82 @@ def _elide(text: str, max_width: float, fm: QFontMetricsF) -> str:
     while text and fm.horizontalAdvance(text + ell) > max_width:
         text = text[:-1]
     return text + ell
+
+
+CONN_MIN_WIDTH = 0.7
+CONN_MAX_WIDTH = 6.5
+
+
+class LiveConnectionItem(ConnectionItem):
+    """Connection whose stroke tapers with the subtree weight of its endpoints.
+
+    Width is driven by the **heavier** endpoint's subtree size, so edges
+    feeding a massive branch stay thick and edges between leaves stay thin.
+    Gives the graph the "thick trunk, thin twigs" silhouette.
+    """
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.Antialiasing)
+        scene = getattr(self, "_scene", None)
+        if scene is not None and hasattr(scene, "subtree_weight_of"):
+            w_from = scene.subtree_weight_of(self.conn.from_id)
+            w_to = scene.subtree_weight_of(self.conn.to_id)
+            heavy = max(w_from, w_to)
+            max_w = scene.max_subtree_weight()
+            ratio = (math.log1p(heavy) / math.log1p(max_w)) if max_w > 1 else 0.0
+            # Cubic-ish ramp makes trunk edges fat and twig edges hairline,
+            # rather than the old gentle linear taper.
+            width = THEME.conn_width * (0.35 + 2.8 * ratio ** 1.3)
+            width = max(CONN_MIN_WIDTH, min(CONN_MAX_WIDTH, width))
+        else:
+            width = THEME.conn_width
+        if self.isSelected():
+            width += 1.0
+            col = THEME.conn_selected
+        else:
+            col = THEME.conn_color
+        pen = QPen(QColor(col), width)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.drawPath(self._path)
+
+        if getattr(self.conn, "directed", False):
+            self._draw_arrowhead(painter, width, col)
+
+    def _draw_arrowhead(self, painter: QPainter, line_w: float, color: str):
+        """Filled arrowhead at the midpoint of the path, pointing from→to.
+
+        Midpoint (by arc length — Qt's ``pointAtPercent`` is arc-parameterised)
+        keeps the marker well clear of both endpoints where it would be
+        partially hidden behind the cards.
+        """
+        path = self._path
+        if path.length() <= 0:
+            return
+        t = 0.5
+        pt = path.pointAtPercent(t)
+        angle = -math.radians(path.angleAtPercent(t))  # flip — scene y grows down
+        # Centre the arrow on the midpoint so the tip sits *past* the centre
+        # and the tail sits *before* it; otherwise the whole arrow drifts
+        # toward the ``to`` end and looks off-centre.
+        size = max(9.0, line_w * 3.4)
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        half_len = size / 2.0
+        tip = (pt.x() + cos_a * half_len, pt.y() + sin_a * half_len)
+        back = (pt.x() - cos_a * half_len, pt.y() - sin_a * half_len)
+        perp = (-sin_a, cos_a)
+        wing = size * 0.55
+        left = (back[0] + perp[0] * wing, back[1] + perp[1] * wing)
+        right = (back[0] - perp[0] * wing, back[1] - perp[1] * wing)
+        arrow = QPainterPath()
+        arrow.moveTo(*tip)
+        arrow.lineTo(*left)
+        arrow.lineTo(*right)
+        arrow.closeSubpath()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(color)))
+        painter.drawPath(arrow)
 
 
 def _shift(color: QColor, delta: int) -> QColor:

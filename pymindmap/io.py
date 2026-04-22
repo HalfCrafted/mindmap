@@ -93,6 +93,7 @@ def graph_from_dict(data: dict) -> Graph:
             from_anchor=_anchor_from_dict(c.get("fromPos")),
             to_anchor=_anchor_from_dict(c.get("toPos")),
             waypoints=[_waypoint_from_dict(w) for w in c.get("waypoints", []) or []],
+            directed=bool(c.get("directed", False)),
         )
         g.connections.append(conn)
 
@@ -151,6 +152,7 @@ def graph_to_dict(g: Graph) -> dict:
                 **({"fromPos": _anchor_to_dict(c.from_anchor)} if c.from_anchor else {}),
                 **({"toPos": _anchor_to_dict(c.to_anchor)} if c.to_anchor else {}),
                 **({"waypoints": [_waypoint_to_dict(w) for w in c.waypoints]} if c.waypoints else {}),
+                **({"directed": True} if c.directed else {}),
             }
             for c in g.connections
         ],

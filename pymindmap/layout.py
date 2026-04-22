@@ -1,14 +1,16 @@
-"""Force-directed graph layout (Fruchterman–Reingold).
+"""Graph layouts — Fruchterman–Reingold and a radial tree.
 
-Pure-math, Qt-free. Given a Graph, returns a dict of new (x, y) for each node.
-Keeps existing positions as the starting configuration so the animation is
-stable (nodes don't fly in from random starts).
+Pure-math, Qt-free. Given a Graph (+ optionally a spanning tree), returns a
+dict of new (x, y) for each node. Keeps existing positions as the starting
+configuration so the animation is stable (nodes don't fly in from random
+starts).
 """
 from __future__ import annotations
 
 import math
 import random
-from typing import Dict, Tuple
+from collections import defaultdict, deque
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from .model import Graph
 
@@ -115,11 +117,17 @@ def fruchterman_reingold(
                     dist_sq = dx * dx + dy * dy
                 dist = math.sqrt(dist_sq)
                 force = k_sq / dist
-                # Small anti-overlap boost when cards would geometrically
-                # touch. Kept modest to avoid flinging nodes apart.
-                min_gap = ra + radius[b] + 8.0
+                # Hard-shell kick when cards would geometrically overlap.
+                # Uses the nodes' actual half-diagonals (ra, radius[b]) so
+                # big hubs get the space they need, plus a visual gap.
+                min_gap = ra + radius[b] + 14.0
                 if dist < min_gap:
-                    force += (min_gap - dist) * k * 0.15
+                    # Quadratic ramp: gentle at the border, strong at real
+                    # overlap. 0.55 is tuned so a fully-overlapped pair gets
+                    # pushed apart within a few iterations without the
+                    # neighbourhood exploding.
+                    overlap = (min_gap - dist) / min_gap
+                    force += overlap * overlap * k * 0.55 * min_gap
                 fx = (dx / dist) * force
                 fy = (dy / dist) * force
                 disp[a][0] += fx
@@ -169,3 +177,265 @@ def fruchterman_reingold(
         result[node.id] = (cx - cx_mean - node.width / 2,
                            cy - cy_mean - node.height / 2)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Radial tree layout
+# ---------------------------------------------------------------------------
+def radial_tree_layout(
+    graph: Graph,
+    *,
+    parent: Optional[Dict[int, Optional[int]]] = None,
+    children: Optional[Dict[int, Set[int]]] = None,
+    ring_gap: Optional[float] = None,
+    component_gap: Optional[float] = None,
+    existing: Optional[Dict[int, Tuple[float, float]]] = None,
+) -> Dict[int, Tuple[float, float]]:
+    """Place each connected component as a radial tree around its root.
+
+    Angular wedges are recursively sized from each subtree's *required* arc
+    length — the width a subtree needs at its deepest ring to fit its leaves
+    without overlap. That prevents two problems:
+      • Narrow subtrees don't steal space from bushier siblings.
+      • Leaves at the outermost ring always have at least ``min_arc`` between
+        them.
+
+    Tree edges cannot cross by construction. Any remaining crossings are
+    non-tree edges (cycles in the graph) that the layout can't remove.
+
+    Isolated singletons and tiny components are packed into a compact grid
+    rather than each consuming a full component-gap of empty space.
+    """
+    nodes = graph.nodes
+    if not nodes:
+        return {}
+
+    # ----- build spanning tree if caller didn't supply one -----
+    if parent is None or children is None:
+        parent, children = _bfs_spanning_tree(graph)
+
+    # ----- compact sizing (was spreading the graph too thin) -----
+    dims = [max(n.width, n.height) for n in nodes.values()]
+    mean_dim = sum(dims) / max(1, len(dims))
+    # ring_gap ≈ one node-width — compact but never overlapping.
+    if ring_gap is None:
+        ring_gap = max(110.0, mean_dim * 1.0)
+    if component_gap is None:
+        component_gap = ring_gap * 1.1
+
+    # Minimum arc length per leaf at its ring — keeps adjacent leaves from
+    # overlapping their labels.
+    min_arc = mean_dim * 1.05
+
+    roots = [nid for nid, p in parent.items() if p is None]
+    orphans = [nid for nid in nodes if nid not in parent]
+
+    # Precompute leaf count and the max depth below each node; both feed the
+    # wedge-sizing calculation below.
+    leaves = _count_leaves(roots, children)
+    subtree_depth: Dict[int, int] = {}
+    for r in roots:
+        _compute_subtree_depth(r, children, subtree_depth)
+
+    # Required wedge for a subtree at a given depth: enough arc length at its
+    # deepest ring to fit all its leaves with ``min_arc`` spacing each.
+    def required_wedge(nid: int, depth: int) -> float:
+        leaf_cnt = leaves.get(nid, 1)
+        deepest = depth + subtree_depth.get(nid, 0)  # outermost ring index
+        outer_r = max(1.0, deepest * ring_gap) if deepest > 0 else ring_gap
+        return (leaf_cnt * min_arc) / outer_r
+
+    result: Dict[int, Tuple[float, float]] = {}
+    component_positions: Dict[int, Dict[int, Tuple[float, float]]] = {}
+    component_bounds: List[Tuple[int, float, float, float, float]] = []
+
+    # Separate "real" trees from singletons — singletons pack into a grid.
+    real_roots = [r for r in roots if children.get(r)]
+    singleton_roots = [r for r in roots if not children.get(r)]
+
+    for root in real_roots:
+        comp_pos: Dict[int, Tuple[float, float]] = {}
+        _place_subtree(
+            root, children, leaves, required_wedge, comp_pos,
+            center=(0.0, 0.0),
+            angle_start=0.0,
+            angle_end=2 * math.pi,
+            depth=0,
+            ring_gap=ring_gap,
+        )
+        component_positions[root] = comp_pos
+        if comp_pos:
+            xs = [p[0] for p in comp_pos.values()]
+            ys = [p[1] for p in comp_pos.values()]
+            # Pad bounds by half the max node dim so the next component
+            # doesn't park its root flush against this one's leaves.
+            pad = mean_dim * 0.6
+            component_bounds.append((root,
+                                     min(xs) - pad, min(ys) - pad,
+                                     max(xs) + pad, max(ys) + pad))
+
+    # Place real components left-to-right, biggest first.
+    component_bounds.sort(key=lambda cb: -(cb[3] - cb[1]) - (cb[4] - cb[2]))
+    cursor_x = 0.0
+    for root, xmin, ymin, xmax, ymax in component_bounds:
+        width = xmax - xmin
+        offset_x = cursor_x - xmin
+        for nid, (x, y) in component_positions[root].items():
+            result[nid] = (x + offset_x, y)
+        cursor_x += width + component_gap
+
+    # Singletons + orphans: pack into a grid to the right of the last
+    # component. Keeps stray nodes visible without wasting a whole ring of
+    # empty space per node.
+    stray = singleton_roots + orphans
+    if stray:
+        cell = mean_dim + 24
+        cols = max(1, int(math.ceil(math.sqrt(len(stray)))))
+        for i, nid in enumerate(stray):
+            r, c = divmod(i, cols)
+            result[nid] = (cursor_x + c * cell, r * cell)
+
+    # Center the whole layout on the origin, and convert from centers to
+    # top-left (LiveNodeItem positions the card's top-left at node.x/y).
+    if result:
+        xs = [p[0] for p in result.values()]
+        ys = [p[1] for p in result.values()]
+        cx = (min(xs) + max(xs)) / 2
+        cy = (min(ys) + max(ys)) / 2
+        for nid in list(result.keys()):
+            x, y = result[nid]
+            node = nodes[nid]
+            result[nid] = (x - cx - node.width / 2, y - cy - node.height / 2)
+
+    return result
+
+
+def _compute_subtree_depth(nid: int,
+                           children: Dict[int, Set[int]],
+                           out: Dict[int, int]) -> int:
+    kids = children.get(nid)
+    if not kids:
+        out[nid] = 0
+        return 0
+    best = 0
+    for c in kids:
+        best = max(best, _compute_subtree_depth(c, children, out) + 1)
+    out[nid] = best
+    return best
+
+
+def _count_leaves(roots: Iterable[int],
+                  children: Dict[int, Set[int]]) -> Dict[int, int]:
+    """Leaf count under each node (leaf itself counts as 1)."""
+    leaves: Dict[int, int] = {}
+
+    def count(nid: int) -> int:
+        if nid in leaves:
+            return leaves[nid]
+        kids = children.get(nid)
+        if not kids:
+            leaves[nid] = 1
+            return 1
+        total = sum(count(c) for c in kids)
+        leaves[nid] = max(1, total)
+        return leaves[nid]
+
+    for r in roots:
+        count(r)
+    return leaves
+
+
+def _place_subtree(
+    nid: int,
+    children: Dict[int, Set[int]],
+    leaves: Dict[int, int],
+    required_wedge,
+    out: Dict[int, Tuple[float, float]],
+    *,
+    center: Tuple[float, float],
+    angle_start: float,
+    angle_end: float,
+    depth: int,
+    ring_gap: float,
+):
+    """Recursive radial placement. ``out`` is filled with node centers."""
+    if depth == 0:
+        out[nid] = center
+    else:
+        angle = (angle_start + angle_end) / 2.0
+        r = depth * ring_gap
+        out[nid] = (center[0] + math.cos(angle) * r,
+                    center[1] + math.sin(angle) * r)
+
+    kids = children.get(nid)
+    if not kids:
+        return
+
+    # Child order: largest subtrees on the outside of the wedge, smallest in
+    # the middle. That visually balances the fan.
+    ordered = sorted(kids, key=lambda c: (-leaves.get(c, 1), c))
+    # Reorder: alternate big/small so large subtrees sit on the wedge edges.
+    arranged: List[int] = []
+    left, right = [], []
+    for i, c in enumerate(ordered):
+        (left if i % 2 == 0 else right).append(c)
+    arranged = left + list(reversed(right))
+
+    # Required wedge per child = max(its intrinsic need, proportional share).
+    needs = [required_wedge(c, depth + 1) for c in arranged]
+    total_need = sum(needs) or 1.0
+
+    # Parent's available wedge (full circle at root, parent-allocated below).
+    if depth == 0:
+        # Use exactly what's needed, capped at full circle. Leaves of the
+        # root's subtrees get min_arc spacing on the outermost ring.
+        wedge = min(2 * math.pi, max(needs and max(needs), total_need))
+    else:
+        wedge = max(1e-6, angle_end - angle_start)
+        # If the parent wedge is too narrow to fit the children's minimum
+        # needs, grow it — better to push on sibling branches than overlap.
+        if total_need > wedge:
+            wedge = total_need
+
+    mid = (angle_start + angle_end) / 2.0
+    a0 = mid - wedge / 2.0
+    cur = a0
+    for c, need in zip(arranged, needs):
+        share = (need / total_need) * wedge
+        _place_subtree(
+            c, children, leaves, required_wedge, out,
+            center=center,
+            angle_start=cur,
+            angle_end=cur + share,
+            depth=depth + 1,
+            ring_gap=ring_gap,
+        )
+        cur += share
+
+
+def _bfs_spanning_tree(graph: Graph):
+    """Build a BFS spanning tree rooted at the highest-degree node per comp."""
+    adj: Dict[int, Set[int]] = defaultdict(set)
+    for c in graph.connections:
+        adj[c.from_id].add(c.to_id)
+        adj[c.to_id].add(c.from_id)
+
+    degree = {nid: len(adj[nid]) for nid in graph.nodes}
+
+    parent: Dict[int, Optional[int]] = {}
+    children: Dict[int, Set[int]] = defaultdict(set)
+    remaining = set(graph.nodes.keys())
+    while remaining:
+        root = max(remaining, key=lambda n: (degree.get(n, 0), -n))
+        parent[root] = None
+        q = deque([root])
+        remaining.discard(root)
+        while q:
+            cur = q.popleft()
+            for nb in adj[cur]:
+                if nb in remaining:
+                    parent[nb] = cur
+                    children[cur].add(nb)
+                    remaining.discard(nb)
+                    q.append(nb)
+    return parent, children

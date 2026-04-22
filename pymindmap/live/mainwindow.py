@@ -29,7 +29,13 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import io as mio
-from ..commands import EditNodeCmd, RemoveConnectionCmd, RemoveNodesCmd
+from ..commands import (
+    EditNodeCmd,
+    RemoveConnectionCmd,
+    RemoveNodesCmd,
+    SwapConnectionDirectionCmd,
+    ToggleConnectionDirectionCmd,
+)
 from ..items import ConnectionItem
 from ..model import Graph, Node
 
@@ -491,15 +497,44 @@ class LiveMainWindow(QMainWindow):
         self._refresh_counts()
 
     def _build_shortcuts(self):
-        # Delete/Esc/Duplicate
+        # Delete/Esc/Duplicate/Direction toggles.
         for seq, slot in [
             ("Delete", self.delete_selected),
             ("Shift+D", self._duplicate_selected),
+            ("D", self._toggle_selected_direction),
+            ("R", self._reverse_selected_direction),
         ]:
             a = QAction(self)
             a.setShortcut(QKeySequence(seq))
             a.triggered.connect(slot)
             self.addAction(a)
+
+    def _toggle_selected_direction(self):
+        """Flip each selected connection between directed and bidirectional."""
+        from ..items import ConnectionItem as _CI
+        conns = [it.conn for it in self.scene.selectedItems() if isinstance(it, _CI)]
+        if not conns:
+            return
+        if len(conns) > 1:
+            self.undo_stack.beginMacro("Toggle direction")
+        for c in conns:
+            self.undo_stack.push(ToggleConnectionDirectionCmd(self.scene, c))
+        if len(conns) > 1:
+            self.undo_stack.endMacro()
+
+    def _reverse_selected_direction(self):
+        """Flip from/to on each selected directed connection."""
+        from ..items import ConnectionItem as _CI
+        conns = [it.conn for it in self.scene.selectedItems()
+                 if isinstance(it, _CI) and it.conn.directed]
+        if not conns:
+            return
+        if len(conns) > 1:
+            self.undo_stack.beginMacro("Reverse direction")
+        for c in conns:
+            self.undo_stack.push(SwapConnectionDirectionCmd(self.scene, c))
+        if len(conns) > 1:
+            self.undo_stack.endMacro()
 
     # ---- inspector sync & edits ------------------------------------------
     def _selected_single_node(self) -> Optional[Node]:
