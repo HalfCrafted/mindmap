@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pymindmap"
+version = "0.1.0"
+description = "A modular Python port of the ScatterMind node-based mindmap tool"
+requires-python = ">=3.9"
+dependencies = ["PyQt5>=5.15"]
+
+[project.scripts]
+pymindmap = "pymindmap.app:main"
+
+[tool.setuptools.packages.find]
+include = ["pymindmap*"]
