@@ -13,7 +13,7 @@ Design:
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import (
     QEasingCurve,
@@ -69,6 +69,13 @@ class LiveMindMapScene(QGraphicsScene):
         self._layout_timer = QTimer(self)
         self._layout_timer.setSingleShot(True)
         self._layout_timer.timeout.connect(self._run_layout)
+        # Sticky flag so a Re-arrange click during a debounced mutation
+        # burst still ends up using the cached result when we finally run.
+        self._pending_fresh: bool = False
+        # Cache of F-R results keyed by structure signature. A Re-arrange
+        # press on an already-cached structure just animates back to the
+        # stored positions, so repeated presses are idempotent.
+        self._layout_cache: Dict[int, Dict[int, Tuple[float, float]]] = {}
 
         self._layout_anim: Optional[QVariantAnimation] = None
 
@@ -249,7 +256,14 @@ class LiveMindMapScene(QGraphicsScene):
             ci.setVisible(visible)
 
     def toggle_collapse(self, node_id: int):
-        """Flip the collapsed flag on a node, refresh visibility + layout."""
+        """Flip the collapsed flag on a node, refresh visibility only.
+
+        No re-layout: hiding/showing descendants shouldn't shuffle the
+        whole canvas. The hidden descendants keep their last-known
+        positions, so expanding drops them back exactly where they were
+        before — no re-optimisation surprise. Press Re-arrange if you
+        want a fresh pass.
+        """
         node = self.graph.nodes.get(node_id)
         if node is None or not self.has_descendants(node_id):
             return
@@ -260,7 +274,10 @@ class LiveMindMapScene(QGraphicsScene):
         item = self.node_items.get(node_id)
         if item is not None:
             item.update()
-        self.schedule_layout()
+        # Connections into/out of the expanded subtree need to re-route now
+        # that those endpoints are visible again.
+        for ci in self.connection_items:
+            ci.rebuild_path()
 
     # ---- rebuild ----------------------------------------------------------
     def rebuild_all(self):
@@ -370,21 +387,25 @@ class LiveMindMapScene(QGraphicsScene):
 
     # ---- node edits from inspector ---------------------------------------
     def update_node(self, node_id: int, **attrs):
-        """Apply attr updates from the inspector and relayout if needed."""
+        """Apply attr updates from the inspector.
+
+        Text/body edits are *not* re-layout triggers — they only resize the
+        affected card in place and reroute its incident connections. A
+        tree-wide F-R pass for a single text edit reshuffles unrelated
+        branches, which is disorienting. Press Re-arrange to re-optimise.
+        """
         n = self.graph.nodes.get(node_id)
         if n is None:
             return
-        size_affecting = False
         for k, v in attrs.items():
             if hasattr(n, k):
-                if k in ("text", "body") and getattr(n, k) != v:
-                    size_affecting = True
                 setattr(n, k, v)
         item = self.node_items.get(node_id)
         if item is not None:
             item.refresh()
-        if size_affecting:
-            self.schedule_layout()
+        # Reroute only the connections that touch this node — its size may
+        # have changed, so the border anchors shifted.
+        self.refresh_connections_for(node_id)
 
     # ---- waypoint handles -------------------------------------------------
     def _clear_waypoint_handles(self):
@@ -413,8 +434,16 @@ class LiveMindMapScene(QGraphicsScene):
         self.selection_info_changed.emit()
 
     # ---- layout pipeline --------------------------------------------------
-    def schedule_layout(self):
-        """Request a re-layout. Coalesces bursts of structural changes."""
+    def schedule_layout(self, *, fresh: bool = False):
+        """Request a re-layout. Coalesces bursts of structural changes.
+
+        ``fresh`` = True forces F-R to start from a deterministic grid so
+        pressing Re-arrange always produces the same layout for the same
+        structure (no drift between clicks). Mutations pass ``fresh=False``
+        so incremental edits don't scramble the existing arrangement.
+        """
+        if fresh:
+            self._pending_fresh = True
         self._layout_timer.start(LAYOUT_DEBOUNCE_MS)
 
     def _run_layout(self):
@@ -423,6 +452,9 @@ class LiveMindMapScene(QGraphicsScene):
         visible_ids = [nid for nid in self.graph.nodes if nid not in self._hidden]
         if not visible_ids:
             return
+
+        fresh = self._pending_fresh
+        self._pending_fresh = False
 
         starts = {nid: (self.graph.nodes[nid].x, self.graph.nodes[nid].y)
                   for nid in visible_ids}
@@ -437,13 +469,23 @@ class LiveMindMapScene(QGraphicsScene):
             if c.from_id in sub.nodes and c.to_id in sub.nodes:
                 sub.connections.append(c)
 
-        ends = fruchterman_reingold(
-            sub,
-            iterations=LAYOUT_ITERATIONS,
-            seed=_structure_seed(sub),
-            compactness=1.25,
-            center_force=0.75,
-        )
+        sig = _structure_seed(sub)
+
+        if fresh and sig in self._layout_cache:
+            # Re-arrange on an unchanged structure → snap back to the
+            # cached layout. No F-R run, no drift.
+            ends = self._layout_cache[sig]
+        else:
+            ends = fruchterman_reingold(
+                sub,
+                iterations=LAYOUT_ITERATIONS,
+                seed=sig,
+                compactness=1.25,
+                center_force=0.75,
+            )
+            # Cache so the next Re-arrange click on the same structure is
+            # deterministic. Mutations produce a new sig + new cache entry.
+            self._layout_cache[sig] = ends
 
         if not any(_moved(starts.get(nid), ends[nid]) for nid in ends):
             return

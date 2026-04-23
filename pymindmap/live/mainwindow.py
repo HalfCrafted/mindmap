@@ -319,7 +319,7 @@ class LiveMainWindow(QMainWindow):
 
         icon_btn("Add note", "Add note at center", self.add_note_at_center, shortcut="Shift+A")
         icon_btn("Fit", "Fit all to view", self.view.fit_all, shortcut=".")
-        icon_btn("Re-arrange", "Re-run auto-layout", self.scene.schedule_layout, shortcut="Ctrl+L")
+        icon_btn("Re-arrange", "Re-run auto-layout", lambda: self.scene.schedule_layout(fresh=True), shortcut="Ctrl+L")
 
         h.addStretch(1)
 
