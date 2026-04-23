@@ -504,6 +504,10 @@ class LiveMainWindow(QMainWindow):
         # Delete/Esc/Duplicate/Direction toggles.
         for seq, slot in [
             ("Delete", self.delete_selected),
+            # Keyboards without a dedicated Delete key (e.g. compact
+            # laptop layouts) get Backspace and X as aliases.
+            ("Backspace", self.delete_selected),
+            ("X", self.delete_selected),
             ("Shift+D", self._duplicate_selected),
             ("D", self._toggle_selected_direction),
             ("R", self._reverse_selected_direction),
