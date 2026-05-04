@@ -448,7 +448,16 @@ class LiveNodeItem(QGraphicsObject):
                 self._scene.toggle_collapse(self.node.id)
             event.accept()
             return
+        # Pin against the physics simulator while the user is interacting
+        # with this node so dragging isn't fighting repulsion forces.
+        if self._scene is not None and hasattr(self._scene, "pin_node"):
+            self._scene.pin_node(self.node.id)
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._scene is not None and hasattr(self._scene, "unpin_node"):
+            self._scene.unpin_node(self.node.id)
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         # Don't open the editor when double-clicking the chevron.
@@ -546,6 +555,17 @@ class LiveConnectionItem(ConnectionItem):
             col = THEME.conn_selected
         else:
             col = THEME.conn_color
+            # Override with the branch colour when the scene has assigned
+            # one. The deeper endpoint (`to_id` for a directed edge, falling
+            # back to `from_id`) determines which branch this edge belongs
+            # to so cross-links between branches don't visually claim the
+            # wrong colour.
+            if scene is not None and hasattr(scene, "branch_color_of"):
+                bcol = scene.branch_color_of(self.conn.to_id)
+                if not bcol:
+                    bcol = scene.branch_color_of(self.conn.from_id)
+                if bcol:
+                    col = bcol
         pen = QPen(QColor(col), width)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)

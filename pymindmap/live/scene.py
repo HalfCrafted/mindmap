@@ -12,6 +12,8 @@ Design:
 """
 from __future__ import annotations
 
+import math
+import random
 from collections import defaultdict, deque
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -29,7 +31,7 @@ from PyQt5.QtGui import QBrush, QColor, QPainter, QPen
 from PyQt5.QtWidgets import QGraphicsScene
 
 from ..items import ConnectionItem, WaypointItem  # reuse bezier + waypoint
-from ..layout import fruchterman_reingold
+from ..layout import fruchterman_reingold, organic_tree_layout
 from ..model import Connection, Graph, Node
 
 from .items import LiveConnectionItem, LiveNodeItem
@@ -41,6 +43,48 @@ GRID_SPACING = 28
 LAYOUT_DEBOUNCE_MS = 120
 LAYOUT_DURATION_MS = 400
 LAYOUT_ITERATIONS = 240   # higher so the tighter packing fully converges
+
+# Continuous physics simulator. The scene runs a 60 Hz force-directed loop
+# with all-pairs node-node repulsion, edge springs, and a small centre
+# pull. The simulator runs whenever something is out of equilibrium and
+# auto-pauses once the system has settled, so idle CPU is minimal.
+PHYSICS_TICK_MS = 16
+PHYSICS_REPULSION_K = 110000.0  # 1/r² long-range repulsion (centre-to-centre)
+PHYSICS_SPRING_K = 0.030        # edge attraction toward ideal length
+PHYSICS_IDEAL_EDGE = 220.0      # spring rest length, in scene units
+PHYSICS_CENTER_K = 0.003        # weak pull toward (0, 0)
+PHYSICS_DAMPING = 0.82          # velocity decay per tick (1.0 = no damping)
+PHYSICS_MAX_SPEED = 90.0        # cap to prevent runaway oscillation
+PHYSICS_OVERLAP_BOOST = 6.0     # extra repulsion when bounding circles overlap
+PHYSICS_REST_THRESHOLD = 0.4    # below this max speed, count as resting
+PHYSICS_REST_TICKS = 30         # ~0.5 s at rest before pausing
+# AABB constraint solver — position correction (not a force) applied on
+# top of soft repulsion to guarantee real rectangles never clip. Velocity
+# is left untouched, so no oscillation: each tick the overlap is reduced
+# by PHYSICS_AABB_RELAX of itself, asymptotically converging to zero.
+PHYSICS_AABB_MARGIN = 8.0       # extra padding around each card's AABB
+PHYSICS_AABB_RELAX = 0.30       # fraction of overlap separated per tick
+PHYSICS_AABB_MIN_OV = 0.5       # ignore overlaps below this (px) — keeps
+                                # the constraint solver from micro-nudging
+                                # cards that are at the rest equilibrium
+
+# Palette assigned per top-level branch under each component root. Twelve
+# pastel hues spaced around the colour wheel — chosen for legibility against
+# the dark canvas. Branch index → palette[index % len].
+BRANCH_PALETTE = [
+    "#7c9cf5",  # blue
+    "#f5947c",  # coral
+    "#7cf5a7",  # mint
+    "#f5d97c",  # gold
+    "#c87cf5",  # purple
+    "#7cd5f5",  # cyan
+    "#f57cb6",  # pink
+    "#a7f57c",  # lime
+    "#f58a8a",  # red
+    "#f5b87c",  # orange
+    "#7cf5d5",  # turquoise
+    "#d7d77c",  # olive
+]
 
 
 class LiveMindMapScene(QGraphicsScene):
@@ -65,19 +109,27 @@ class LiveMindMapScene(QGraphicsScene):
         self._children: Dict[int, Set[int]] = defaultdict(set)
         self._subtree_weight: Dict[int, int] = {}
         self._hidden: Set[int] = set()
+        # Auto-assigned branch colour: every node inherits the colour of the
+        # top-level branch (direct child of its component root) it belongs
+        # to. Used by LiveConnectionItem so each branch draws in its own
+        # hue. Recomputed alongside the spanning tree.
+        self._branch_color: Dict[int, str] = {}
 
-        self._layout_timer = QTimer(self)
-        self._layout_timer.setSingleShot(True)
-        self._layout_timer.timeout.connect(self._run_layout)
-        # Sticky flag so a Re-arrange click during a debounced mutation
-        # burst still ends up using the cached result when we finally run.
-        self._pending_fresh: bool = False
-        # Cache of F-R results keyed by structure signature. A Re-arrange
-        # press on an already-cached structure just animates back to the
-        # stored positions, so repeated presses are idempotent.
-        self._layout_cache: Dict[int, Dict[int, Tuple[float, float]]] = {}
+        # Continuous physics simulator. Runs at 60 Hz, integrating
+        # repulsion + spring + centre forces; auto-pauses once the system
+        # is at rest and wakes again on any structural change.
+        self._velocities: Dict[int, List[float]] = {}
+        self._pinned: Set[int] = set()
+        self._physics_idle_ticks: int = 0
+        self._repulsion_scale: float = 1.0  # user-adjustable spread amount
+        self._physics_timer = QTimer(self)
+        self._physics_timer.setInterval(PHYSICS_TICK_MS)
+        self._physics_timer.timeout.connect(self._physics_tick)
 
+        # Kept for compatibility with paths that still refer to it (no
+        # longer used by the layout pipeline itself).
         self._layout_anim: Optional[QVariantAnimation] = None
+        self._layout_cache: Dict[int, Dict[int, Tuple[float, float]]] = {}
 
         self._emphasis: Optional[Dict[int, float]] = None
 
@@ -85,6 +137,7 @@ class LiveMindMapScene(QGraphicsScene):
         self._recompute_tree()
         self.rebuild_all()
         self.selectionChanged.connect(self._on_selection_changed)
+        self._wake_physics()
 
     # ---- degree bookkeeping ----------------------------------------------
     def _recompute_degrees(self):
@@ -142,6 +195,48 @@ class LiveMindMapScene(QGraphicsScene):
             compute(nid)
         self._subtree_weight = weights
 
+    def branch_color_of(self, nid: int) -> Optional[str]:
+        """Hex colour ('#rrggbb') for the top-level branch *nid* sits in.
+        ``None`` if *nid* is a component root or has no spanning-tree entry.
+        """
+        return self._branch_color.get(nid)
+
+    def _recompute_branch_colors(self):
+        """Assign a palette colour to every direct child of each component
+        root, then propagate that colour down the subtree. Colour for a
+        branch is keyed on the branch-root's node id (modulo palette size,
+        with collision-shifting per parent), so a branch keeps its colour
+        when other branches are added or removed.
+        """
+        self._branch_color = {}
+        if not self._parent:
+            return
+        roots = [nid for nid, p in self._parent.items() if p is None]
+        n_palette = len(BRANCH_PALETTE)
+        for root in roots:
+            kids = sorted(self._children.get(root, ()))
+            if not kids:
+                continue
+            used: Set[int] = set()
+            for child in kids:
+                idx = child % n_palette
+                tries = 0
+                while idx in used and tries < n_palette:
+                    idx = (idx + 1) % n_palette
+                    tries += 1
+                used.add(idx)
+                color = BRANCH_PALETTE[idx]
+                # DFS the subtree, painting every reachable descendant.
+                stack = [child]
+                while stack:
+                    cur = stack.pop()
+                    if cur in self._branch_color:
+                        continue
+                    self._branch_color[cur] = color
+                    for c in self._children.get(cur, ()):
+                        if c not in self._branch_color:
+                            stack.append(c)
+
     # ---- BFS tree / collapse bookkeeping ---------------------------------
     def _recompute_tree(self):
         """Build a spanning tree that honours the user-drawn hierarchy.
@@ -164,6 +259,7 @@ class LiveMindMapScene(QGraphicsScene):
         self._children = defaultdict(set)
         if not self.graph.nodes:
             self._recompute_subtree_weights()
+            self._recompute_branch_colors()
             self._recompute_hidden()
             return
 
@@ -224,6 +320,7 @@ class LiveMindMapScene(QGraphicsScene):
                         q.append(nb)
 
         self._recompute_subtree_weights()
+        self._recompute_branch_colors()
         self._recompute_hidden()
 
     def _recompute_hidden(self):
@@ -433,100 +530,234 @@ class LiveMindMapScene(QGraphicsScene):
             self.rebuild_waypoint_handles(sel_conns[0])
         self.selection_info_changed.emit()
 
-    # ---- layout pipeline --------------------------------------------------
+    # ---- continuous physics simulator -----------------------------------
     def schedule_layout(self, *, fresh: bool = False):
-        """Request a re-layout. Coalesces bursts of structural changes.
-
-        ``fresh`` = True forces F-R to start from a deterministic grid so
-        pressing Re-arrange always produces the same layout for the same
-        structure (no drift between clicks). Mutations pass ``fresh=False``
-        so incremental edits don't scramble the existing arrangement.
+        """Wake the physics simulator. Mutations call this with ``fresh=False``
+        (just resume); the Re-arrange button calls it with ``fresh=True``,
+        which adds a small random impulse to every node so the simulator
+        can escape any local minimum it's settled into.
         """
         if fresh:
-            self._pending_fresh = True
-        self._layout_timer.start(LAYOUT_DEBOUNCE_MS)
+            self._perturb_velocities()
+        self._wake_physics()
 
-    def _run_layout(self):
-        if not self.graph.nodes:
-            return
-        visible_ids = [nid for nid in self.graph.nodes if nid not in self._hidden]
-        if not visible_ids:
-            return
+    def _wake_physics(self):
+        self._physics_idle_ticks = 0
+        if not self._physics_timer.isActive():
+            self.layout_started.emit()
+            self._physics_timer.start()
 
-        fresh = self._pending_fresh
-        self._pending_fresh = False
-
-        starts = {nid: (self.graph.nodes[nid].x, self.graph.nodes[nid].y)
-                  for nid in visible_ids}
-
-        # Build a filtered subgraph containing only visible nodes and the
-        # edges between them. We lay that out; hidden nodes keep their last
-        # known positions (harmless — they're not drawn).
-        sub = Graph()
-        for nid in visible_ids:
-            sub.nodes[nid] = self.graph.nodes[nid]
-        for c in self.graph.connections:
-            if c.from_id in sub.nodes and c.to_id in sub.nodes:
-                sub.connections.append(c)
-
-        sig = _structure_seed(sub)
-
-        if fresh and sig in self._layout_cache:
-            # Re-arrange on an unchanged structure → snap back to the
-            # cached layout. No F-R run, no drift.
-            ends = self._layout_cache[sig]
-        else:
-            ends = fruchterman_reingold(
-                sub,
-                iterations=LAYOUT_ITERATIONS,
-                seed=sig,
-                compactness=1.25,
-                center_force=0.75,
-            )
-            # Cache so the next Re-arrange click on the same structure is
-            # deterministic. Mutations produce a new sig + new cache entry.
-            self._layout_cache[sig] = ends
-
-        if not any(_moved(starts.get(nid), ends[nid]) for nid in ends):
-            return
-
-        self.layout_started.emit()
-        self._animate_positions(starts, ends)
-
-    def _animate_positions(self, starts: dict, ends: dict):
-        if self._layout_anim is not None:
-            self._layout_anim.stop()
-        anim = QVariantAnimation(self)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setDuration(LAYOUT_DURATION_MS)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        def on_frame(t):
-            for nid, end in ends.items():
-                s = starts.get(nid)
-                if s is None:
-                    continue
-                nx = s[0] + (end[0] - s[0]) * t
-                ny = s[1] + (end[1] - s[1]) * t
-                n = self.graph.nodes.get(nid)
-                if n is None:
-                    continue
-                n.x, n.y = nx, ny
-                item = self.node_items.get(nid)
-                if item is not None:
-                    item.setPos(nx, ny)
-            for ci in self.connection_items:
-                ci.rebuild_path()
-
-        def on_finished():
-            self._layout_anim = None
+    def _pause_physics(self):
+        if self._physics_timer.isActive():
+            self._physics_timer.stop()
             self.layout_finished.emit()
 
-        anim.valueChanged.connect(on_frame)
-        anim.finished.connect(on_finished)
-        self._layout_anim = anim
-        anim.start()
+    def pin_node(self, nid: int):
+        """Fix a node's position (used while the user is dragging it). The
+        node still receives forces from the simulator but they're ignored
+        until ``unpin_node`` is called."""
+        self._pinned.add(nid)
+        self._velocities.pop(nid, None)
+        self._wake_physics()
+
+    def unpin_node(self, nid: int):
+        self._pinned.discard(nid)
+        self._wake_physics()
+
+    def set_repulsion_scale(self, scale: float):
+        """Multiply the per-pair repulsion strength by ``scale`` (1.0 = the
+        baseline). Lower values cluster nodes tighter, higher values spread
+        them further apart. The change takes effect immediately."""
+        scale = max(0.05, min(8.0, float(scale)))
+        if abs(scale - self._repulsion_scale) < 1e-4:
+            return
+        self._repulsion_scale = scale
+        self._wake_physics()
+
+    def repulsion_scale(self) -> float:
+        return self._repulsion_scale
+
+    def _perturb_velocities(self):
+        rng = random.Random()
+        for nid in self.graph.nodes:
+            v = self._velocities.setdefault(nid, [0.0, 0.0])
+            v[0] += rng.uniform(-25.0, 25.0)
+            v[1] += rng.uniform(-25.0, 25.0)
+
+    def _physics_tick(self):
+        nodes = self.graph.nodes
+        if not nodes:
+            self._pause_physics()
+            return
+        visible_ids = [nid for nid in nodes if nid not in self._hidden]
+        if not visible_ids:
+            self._pause_physics()
+            return
+
+        # Pre-compute centres + bounding-circle radii + half-dims once per
+        # tick. Radii drive the soft 1/r² repulsion; half-dims drive the
+        # AABB position-correction below. Sizes are read live so dynamic
+        # resizing feeds straight into the next tick's collision.
+        centers: Dict[int, Tuple[float, float]] = {}
+        radii: Dict[int, float] = {}
+        half_dims: Dict[int, Tuple[float, float]] = {}
+        for nid in visible_ids:
+            n = nodes[nid]
+            centers[nid] = (n.x + n.width / 2.0, n.y + n.height / 2.0)
+            hw = n.width / 2.0
+            hh = n.height / 2.0
+            radii[nid] = math.sqrt(hw * hw + hh * hh)
+            half_dims[nid] = (hw, hh)
+
+        forces: Dict[int, List[float]] = {nid: [0.0, 0.0] for nid in visible_ids}
+        # Position corrections applied after force integration to enforce
+        # the no-AABB-overlap constraint without touching velocity.
+        corrections: Dict[int, List[float]] = {nid: [0.0, 0.0] for nid in visible_ids}
+
+        # Pairwise repulsion: 1/r² long-range plus a smooth quadratic boost
+        # when the bounding circles overlap. Smooth (not hard-shell) so the
+        # forces taper to zero as nodes separate — without that taper,
+        # the system oscillates around the minimum-distance shell.
+        ids = visible_ids
+        n_ids = len(ids)
+        repulsion_k = PHYSICS_REPULSION_K * self._repulsion_scale
+        for i in range(n_ids):
+            a = ids[i]
+            ax, ay = centers[a]
+            ra = radii[a]
+            ahw, ahh = half_dims[a]
+            fa = forces[a]
+            ca = corrections[a]
+            for j in range(i + 1, n_ids):
+                b = ids[j]
+                bx, by = centers[b]
+                rb = radii[b]
+                bhw, bhh = half_dims[b]
+                dx = ax - bx
+                dy = ay - by
+                d2 = dx * dx + dy * dy
+                if d2 < 1.0:
+                    dx = float(a - b)
+                    dy = 0.0
+                    d2 = max(dx * dx + dy * dy, 1.0)
+                d = math.sqrt(d2)
+                min_d = ra + rb + 18.0
+                if d < min_d:
+                    overlap = (min_d - d) / min_d
+                    force = (repulsion_k / d2) * (
+                        1.0 + PHYSICS_OVERLAP_BOOST * overlap * overlap
+                    )
+                else:
+                    force = repulsion_k / d2
+                ux = dx / d
+                uy = dy / d
+                fa[0] += ux * force
+                fa[1] += uy * force
+                fb = forces[b]
+                fb[0] -= ux * force
+                fb[1] -= uy * force
+
+                # AABB constraint: if the actual rectangles (plus a small
+                # margin) are overlapping, schedule a *position* correction
+                # for both nodes along the axis of minimum penetration.
+                # Position correction is applied after integration and
+                # leaves velocity untouched — no oscillation possible.
+                req_x = ahw + bhw + PHYSICS_AABB_MARGIN
+                req_y = ahh + bhh + PHYSICS_AABB_MARGIN
+                ovx = req_x - abs(dx)
+                ovy = req_y - abs(dy)
+                if ovx > PHYSICS_AABB_MIN_OV and ovy > PHYSICS_AABB_MIN_OV:
+                    cb = corrections[b]
+                    if ovx < ovy:
+                        sign = 1.0 if dx >= 0 else -1.0
+                        sep = sign * ovx * 0.5 * PHYSICS_AABB_RELAX
+                        ca[0] += sep
+                        cb[0] -= sep
+                    else:
+                        sign = 1.0 if dy >= 0 else -1.0
+                        sep = sign * ovy * 0.5 * PHYSICS_AABB_RELAX
+                        ca[1] += sep
+                        cb[1] -= sep
+
+        # Edge attraction: each connection is a Hookean spring with rest
+        # length ``PHYSICS_IDEAL_EDGE``.
+        for c in self.graph.connections:
+            a_id = c.from_id
+            b_id = c.to_id
+            if a_id not in centers or b_id not in centers:
+                continue
+            ax, ay = centers[a_id]
+            bx, by = centers[b_id]
+            dx = ax - bx
+            dy = ay - by
+            d = math.sqrt(dx * dx + dy * dy) or 0.01
+            f = PHYSICS_SPRING_K * (d - PHYSICS_IDEAL_EDGE)
+            ux = dx / d
+            uy = dy / d
+            forces[a_id][0] -= ux * f
+            forces[a_id][1] -= uy * f
+            forces[b_id][0] += ux * f
+            forces[b_id][1] += uy * f
+
+        # Light centring: keeps the whole graph from drifting off screen
+        # over many ticks of asymmetric forces.
+        for nid in visible_ids:
+            cx, cy = centers[nid]
+            forces[nid][0] -= cx * PHYSICS_CENTER_K
+            forces[nid][1] -= cy * PHYSICS_CENTER_K
+
+        # Integrate (semi-implicit Euler with damping). Velocities are
+        # capped to keep highly-loaded edges from launching nodes. Track
+        # total per-tick motion (velocity + position-correction) so rest
+        # detection accounts for the constraint solver too.
+        max_motion_sq = 0.0
+        for nid in visible_ids:
+            if nid in self._pinned:
+                self._velocities[nid] = [0.0, 0.0]
+                continue
+            v = self._velocities.setdefault(nid, [0.0, 0.0])
+            fx, fy = forces[nid]
+            v[0] = v[0] * PHYSICS_DAMPING + fx
+            v[1] = v[1] * PHYSICS_DAMPING + fy
+            speed_sq = v[0] * v[0] + v[1] * v[1]
+            if speed_sq > PHYSICS_MAX_SPEED * PHYSICS_MAX_SPEED:
+                speed = math.sqrt(speed_sq)
+                v[0] *= PHYSICS_MAX_SPEED / speed
+                v[1] *= PHYSICS_MAX_SPEED / speed
+            n = nodes[nid]
+            n.x += v[0]
+            n.y += v[1]
+            cx_corr, cy_corr = corrections[nid]
+            if cx_corr or cy_corr:
+                n.x += cx_corr
+                n.y += cy_corr
+            tx = v[0] + cx_corr
+            ty = v[1] + cy_corr
+            motion_sq = tx * tx + ty * ty
+            if motion_sq > max_motion_sq:
+                max_motion_sq = motion_sq
+            item = self.node_items.get(nid)
+            if item is not None:
+                item.setPos(n.x, n.y)
+
+        # Update edges + waypoint handles.
+        for ci in self.connection_items:
+            ci.rebuild_path()
+        self._refresh_waypoint_positions()
+
+        # Sleep when the system is at rest. Any mutation, drag, or
+        # Re-arrange click wakes the timer back up. We snap every velocity
+        # to zero on pause so a slow drift doesn't survive the sleep and
+        # immediately re-trigger work on the next wake.
+        if math.sqrt(max_motion_sq) < PHYSICS_REST_THRESHOLD:
+            self._physics_idle_ticks += 1
+            if self._physics_idle_ticks > PHYSICS_REST_TICKS:
+                for nid in self._velocities:
+                    self._velocities[nid][0] = 0.0
+                    self._velocities[nid][1] = 0.0
+                self._pause_physics()
+        else:
+            self._physics_idle_ticks = 0
 
     # ---- emphasis (spreading activation / search) -------------------------
     def set_emphasis(self, activations: Optional[Dict[int, float]]):

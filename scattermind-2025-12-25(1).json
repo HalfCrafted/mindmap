@@ -5,990 +5,972 @@
       4,
       {
         "id": 4,
-        "x": -526.8024751068076,
-        "y": -1016.5637848368035,
+        "x": -105.5203259207073,
+        "y": -367.75663824109586,
         "text": "Root",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 172.25,
-        "height": 104.0,
+        "width": 172.5,
+        "height": 93.0,
         "w": 172,
-        "h": 104
+        "h": 93
       }
     ],
     [
       14,
       {
         "id": 14,
-        "x": 402.40035245607,
-        "y": 607.7535981771164,
+        "x": -223.70505464917557,
+        "y": 569.8130950162844,
         "text": "Procedural",
         "color": "#06b6d4",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 257.4375,
-        "height": 87.71510546439123,
-        "w": 257,
-        "h": 88
+        "width": 249.296875,
+        "height": 76.24765282535415,
+        "w": 249,
+        "h": 76
       }
     ],
     [
       15,
       {
         "id": 15,
-        "x": 637.951044543619,
-        "y": 1117.5526580421208,
+        "x": -250.1192045958246,
+        "y": 877.2157687499873,
         "text": "Shaders",
         "color": "#22c55e",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 214.9375,
-        "height": 87.11091680387884,
-        "w": 215,
-        "h": 87
+        "width": 212.828125,
+        "height": 75.680850388811,
+        "w": 213,
+        "h": 76
       }
     ],
     [
       16,
       {
         "id": 16,
-        "x": -586.039627394463,
-        "y": -284.0429767856956,
+        "x": -509.26008947363647,
+        "y": -128.8763577442531,
         "text": "Game Development",
         "color": "#f59e0b",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 426.28125,
-        "height": 101.71675177619086,
-        "w": 426,
-        "h": 102
+        "width": 418.859375,
+        "height": 88.97277022995765,
+        "w": 419,
+        "h": 89
       }
     ],
     [
       21,
       {
         "id": 21,
-        "x": 158.25805693015337,
-        "y": 77.91112811023359,
+        "x": -218.87896832723305,
+        "y": 249.45124823117246,
         "text": "Animation",
         "color": "#22c55e",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 266.46875,
-        "height": 95.4583447468897,
-        "w": 266,
-        "h": 95
+        "width": 254.40625,
+        "height": 82.10890974217929,
+        "w": 254,
+        "h": 82
       }
     ],
     [
       23,
       {
         "id": 23,
-        "x": -1097.8031219500315,
-        "y": -74.69349803106294,
+        "x": -626.1390575605703,
+        "y": -434.67781470279687,
         "text": "Programming",
         "color": "#6366f1",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 268.90625,
-        "height": 72.69090734073922,
-        "w": 269,
-        "h": 73
+        "width": 255.34375,
+        "height": 62.71997919451497,
+        "w": 255,
+        "h": 63
       }
     ],
     [
       24,
       {
         "id": 24,
-        "x": -936.1374686403134,
-        "y": -436.9922343617799,
+        "x": -623.8635873288398,
+        "y": -213.17808301045434,
         "text": "Audio",
         "color": "#06b6d4",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 156.765625,
-        "height": 65.14014310564409,
-        "w": 157,
-        "h": 65
+        "width": 154.75,
+        "height": 57.38893054766433,
+        "w": 155,
+        "h": 57
       }
     ],
     [
       26,
       {
         "id": 26,
-        "x": -778.1864405803283,
-        "y": 335.5346872352791,
+        "x": -769.6988818390545,
+        "y": 61.667555315553585,
         "text": "Level Design",
         "color": "#06b6d4",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 266.4375,
-        "height": 80.1643412292961,
-        "w": 266,
-        "h": 80
+        "width": 266.671875,
+        "height": 69.91660417850352,
+        "w": 267,
+        "h": 70
       }
     ],
     [
       27,
       {
         "id": 27,
-        "x": -1194.5040787887788,
-        "y": 776.0696267397127,
+        "x": -1022.5051181709844,
+        "y": 277.0606274502141,
         "text": "Props & Environment",
         "color": "#6366f1",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 373.765625,
-        "height": 75.0408452510568,
-        "w": 374,
-        "h": 75
+        "width": 357.0625,
+        "height": 64.98638511497882,
+        "w": 357,
+        "h": 65
       }
     ],
     [
       28,
       {
         "id": 28,
-        "x": -569.3291712576906,
-        "y": 1043.8017934960608,
+        "x": -1266.2897460434222,
+        "y": -123.52097758863344,
         "text": "CSG",
         "color": "#8B5CF6",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 128.203125,
-        "height": 53.07007155282204,
-        "w": 128,
-        "h": 53
+        "width": 130.03125,
+        "height": 47.694465273832165,
+        "w": 130,
+        "h": 48
       }
     ],
     [
       29,
       {
         "id": 29,
-        "x": 717.4814926360577,
-        "y": -43.43506693622519,
+        "x": 59.170963677364604,
+        "y": 459.55523656072955,
         "text": "Character Design",
         "color": "#06b6d4",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 320.8125,
-        "height": 75.0408452510568,
-        "w": 321,
-        "h": 75
+        "width": 319.90625,
+        "height": 67.08339582149648,
+        "w": 320,
+        "h": 67
       }
     ],
     [
       30,
       {
         "id": 30,
-        "x": 2.7360544541687943,
-        "y": -569.5416395588437,
+        "x": -194.72372375374394,
+        "y": -85.04962563998329,
         "text": "Narrative & Writing",
         "color": "#8B5CF6",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 340.40625,
-        "height": 72.69090734073922,
-        "w": 340,
-        "h": 73
+        "width": 334.546875,
+        "height": 64.98638511497882,
+        "w": 335,
+        "h": 65
       }
     ],
     [
       34,
       {
         "id": 34,
-        "x": 1272.7344596928267,
-        "y": -130.61001465457286,
+        "x": 370.81098535570453,
+        "y": 610.1870268379972,
         "text": "Rigging/Animation",
         "color": "#06b6d4",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 315.109375,
-        "height": 68.09426967647406,
+        "width": 314.90625,
+        "height": 62.71997919451497,
         "w": 315,
-        "h": 68
+        "h": 63
       }
     ],
     [
       36,
       {
         "id": 36,
-        "x": 947.8507021512366,
-        "y": -274.4012331301061,
+        "x": 117.37004868400585,
+        "y": 712.0777104012765,
         "text": "Modeling",
         "color": "#8B5CF6",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 180.140625,
-        "height": 53.07007155282204,
-        "w": 180,
-        "h": 53
+        "width": 176.34375,
+        "height": 47.694465273832165,
+        "w": 176,
+        "h": 48
       }
     ],
     [
       38,
       {
         "id": 38,
-        "x": -1647.6836655584505,
-        "y": 7.127009192627462,
+        "x": -930.6167812444864,
+        "y": -621.3455317561973,
         "text": "Mechanics",
         "color": "#22c55e",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 216.34375,
-        "height": 68.09426967647406,
-        "w": 216,
-        "h": 68
+        "width": 213.078125,
+        "height": 60.222138904671354,
+        "w": 213,
+        "h": 60
       }
     ],
     [
       39,
       {
         "id": 39,
-        "x": 1660.7376893169521,
-        "y": -347.8637985131554,
+        "x": 695.1383891006325,
+        "y": 660.2771039644439,
         "text": "Armature Deform",
         "color": "#6366f1",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 285.046875,
-        "height": 60.62083578791717,
-        "w": 285,
-        "h": 61
+        "width": 284.171875,
+        "height": 57.38893054766433,
+        "w": 284,
+        "h": 57
       }
     ],
     [
       40,
       {
         "id": 40,
-        "x": 1646.0966654121487,
-        "y": 28.652465820918835,
+        "x": 538.2194524626423,
+        "y": 862.9750606432146,
         "text": "Blendshapes",
         "color": "#8B5CF6",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 212.125,
-        "height": 53.07007155282204,
-        "w": 212,
-        "h": 53
+        "width": 211.25,
+        "height": 47.694465273832165,
+        "w": 211,
+        "h": 48
       }
     ],
     [
       41,
       {
         "id": 41,
-        "x": 1967.2561439438218,
-        "y": -497.28126761861245,
+        "x": 964.8923639171827,
+        "y": 595.0437718650171,
         "text": "AccuRig/CCiC Rigify Pipeline",
         "color": "#8B5CF6",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 275.046875,
-        "height": 80.07007155282204,
-        "w": 275,
-        "h": 80
-      }
-    ],
-    [
-      63,
-      {
-        "id": 63,
-        "x": -532.8256734215256,
-        "y": -1950.426355253911,
-        "text": "Repetitive Tasks",
-        "color": "#8B5CF6",
-        "fontSize": 14,
-        "align": "center",
-        "bold": false,
-        "italic": false,
-        "width": 242.921875,
-        "height": 53.07007155282204,
-        "w": 243,
-        "h": 53
+        "width": 276.90625,
+        "height": 69.69446527383217,
+        "w": 277,
+        "h": 70
       }
     ],
     [
       64,
       {
         "id": 64,
-        "x": -261.5598998567814,
-        "y": -1622.8810448283655,
+        "x": 634.5358786093637,
+        "y": -193.92982100659393,
         "text": "Frequency",
         "color": "#f59e0b",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 235.828125,
-        "height": 80.1643412292961,
-        "w": 236,
-        "h": 80
+        "width": 249.9375,
+        "height": 79.1896757110607,
+        "w": 250,
+        "h": 79
       }
     ],
     [
       68,
       {
         "id": 68,
-        "x": -156.64508061039004,
-        "y": -1332.021028498704,
+        "x": 642.6935957520124,
+        "y": -481.73201630688544,
         "text": "Weekly",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 158.453125,
-        "height": 53.07007155282204,
-        "w": 158,
-        "h": 53
+        "width": 196.03125,
+        "height": 73.41444446834714,
+        "w": 196,
+        "h": 73
       }
     ],
     [
       70,
       {
         "id": 70,
-        "x": 129.86441400505365,
-        "y": -1963.8466432105536,
+        "x": 994.9980123880191,
+        "y": -133.1311555774644,
         "text": "Biweekly",
         "color": "#6366f1",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 187.34375,
-        "height": 60.62083578791717,
-        "w": 187,
-        "h": 61
+        "width": 184.46875,
+        "height": 53.02551392068281,
+        "w": 184,
+        "h": 53
       }
     ],
     [
       72,
       {
         "id": 72,
-        "x": -205.9137038091382,
-        "y": -1997.2521811406675,
+        "x": 657.5272572005007,
+        "y": 79.29030577300824,
         "text": "Monthly",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 169.234375,
-        "height": 53.07007155282204,
-        "w": 169,
-        "h": 53
+        "width": 166.0,
+        "height": 47.694465273832165,
+        "w": 166,
+        "h": 48
       }
     ],
     [
       73,
       {
         "id": 73,
-        "x": 214.19831961671048,
-        "y": -1593.4563985195439,
+        "x": 853.6375109132973,
+        "y": 79.60777291620823,
         "text": "Semi-monthly",
         "color": "#6366f1",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 242.9375,
-        "height": 60.62083578791717,
-        "w": 243,
-        "h": 61
+        "width": 237.28125,
+        "height": 53.02551392068281,
+        "w": 237,
+        "h": 53
       }
     ],
     [
       74,
       {
         "id": 74,
-        "x": -579.2851257664619,
-        "y": -1660.5520237988032,
+        "x": 891.0751207199885,
+        "y": -326.9363388198863,
         "text": "Yearly",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 147.96875,
-        "height": 53.07007155282204,
-        "w": 148,
-        "h": 53
+        "width": 146.703125,
+        "height": 47.694465273832165,
+        "w": 147,
+        "h": 48
       }
     ],
     [
       75,
       {
         "id": 75,
-        "x": 578.969439079093,
-        "y": -1640.6886740265318,
+        "x": 1056.9195882447632,
+        "y": 260.909111244516,
         "text": "Knife sharpening",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 253.171875,
-        "height": 53.07007155282204,
-        "w": 253,
-        "h": 53
+        "width": 250.625,
+        "height": 47.694465273832165,
+        "w": 251,
+        "h": 48
       }
     ],
     [
       77,
       {
         "id": 77,
-        "x": 438.6362265182282,
-        "y": -2185.4018718188627,
+        "x": 1274.4221891491047,
+        "y": -91.09637939616017,
         "text": "Laundry",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 168.5625,
-        "height": 53.07007155282204,
-        "w": 169,
-        "h": 53
+        "width": 167.359375,
+        "height": 47.694465273832165,
+        "w": 167,
+        "h": 48
       }
     ],
     [
       84,
       {
         "id": 84,
-        "x": 153.50515844721713,
-        "y": 1416.1880082154403,
+        "x": -522.3190740961654,
+        "y": 743.4304377172909,
         "text": "Post-processing",
         "color": "#06b6d4",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 272.265625,
-        "height": 65.14014310564409,
-        "w": 272,
-        "h": 65
+        "width": 264.6875,
+        "height": 57.38893054766433,
+        "w": 265,
+        "h": 57
       }
     ],
     [
       85,
       {
         "id": 85,
-        "x": -18.519866227553734,
-        "y": 1774.7156919606894,
+        "x": -632.7759596142307,
+        "y": 531.0720127883619,
         "text": "Pixelation",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 184.125,
-        "height": 53.07007155282204,
-        "w": 184,
-        "h": 53
+        "width": 181.890625,
+        "height": 47.694465273832165,
+        "w": 182,
+        "h": 48
       }
     ],
     [
       86,
       {
         "id": 86,
-        "x": -139.7564735250962,
-        "y": 1503.4333681291314,
+        "x": -734.3716289843392,
+        "y": 769.8763609783733,
         "text": "Outline",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 160.640625,
-        "height": 53.07007155282204,
-        "w": 161,
-        "h": 53
+        "width": 158.671875,
+        "height": 47.694465273832165,
+        "w": 159,
+        "h": 48
       }
     ],
     [
       87,
       {
         "id": 87,
-        "x": -162.8427586885782,
-        "y": -254.8599336825592,
+        "x": -439.3712036986465,
+        "y": 126.79626966037848,
         "text": "UX/UI",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 146.484375,
-        "height": 53.07007155282204,
-        "w": 146,
-        "h": 53
+        "width": 142.8125,
+        "height": 47.694465273832165,
+        "w": 143,
+        "h": 48
       }
     ],
     [
       88,
       {
         "id": 88,
-        "x": -1112.8246103501626,
-        "y": -697.2446570169973,
-        "text": "SFX",
+        "x": -851.2203311867504,
+        "y": -140.40835251730462,
+        "text": "SFX ",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 123.75,
-        "height": 53.07007155282204,
-        "w": 124,
-        "h": 53
+        "width": 132.015625,
+        "height": 47.694465273832165,
+        "w": 132,
+        "h": 48
       }
     ],
     [
       89,
       {
         "id": 89,
-        "x": -1382.049099524253,
-        "y": -421.7109227080474,
+        "x": -846.4691325707347,
+        "y": -367.7548837013399,
         "text": "Music",
         "color": "#6366f1",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 145.8125,
-        "height": 53.07007155282204,
-        "w": 146,
-        "h": 53
+        "width": 144.015625,
+        "height": 47.694465273832165,
+        "w": 144,
+        "h": 48
       }
     ],
     [
       94,
       {
         "id": 94,
-        "x": -1788.9199266991955,
-        "y": -308.71339124470876,
+        "x": -1177.9693852778166,
+        "y": -435.19840906211783,
         "text": "Rhythm-based attacks",
         "color": "#6366f1",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 302.71875,
-        "height": 53.07007155282204,
-        "w": 303,
-        "h": 53
+        "width": 304.09375,
+        "height": 47.694465273832165,
+        "w": 304,
+        "h": 48
       }
     ],
     [
       97,
       {
         "id": 97,
-        "x": -2110.7163879730533,
-        "y": -16.372921893298418,
+        "x": -1273.2377412628855,
+        "y": -698.918289263471,
         "text": "Planetary Environments",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 318.984375,
-        "height": 53.07007155282204,
-        "w": 319,
-        "h": 53
+        "width": 317.3125,
+        "height": 47.694465273832165,
+        "w": 317,
+        "h": 48
       }
     ],
     [
       99,
       {
         "id": 99,
-        "x": 55.60709181908038,
-        "y": 364.8621145346877,
+        "x": -443.1978681078006,
+        "y": 384.2049896371224,
         "text": "Physics Simulation",
         "color": "#8B5CF6",
         "fontSize": 15,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 267.5625,
-        "height": 53.07007155282204,
-        "w": 268,
-        "h": 53
+        "width": 267.328125,
+        "height": 47.694465273832165,
+        "w": 267,
+        "h": 48
       }
     ],
     [
       103,
       {
         "id": 103,
-        "x": 1139.833721594394,
-        "y": 960.643734935368,
+        "x": -13.955848923820161,
+        "y": 1069.978807822921,
         "text": "Camera Occlusion",
         "color": "#22c55e",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 305.421875,
-        "height": 68.09426967647406,
-        "w": 305,
-        "h": 68
+        "width": 301.046875,
+        "height": 60.222138904671354,
+        "w": 301,
+        "h": 60
       }
     ],
     [
       104,
       {
         "id": 104,
-        "x": 1553.846878948022,
-        "y": 1138.6470689937833,
+        "x": 85.97337160872904,
+        "y": 1351.907283760508,
         "text": "X-Ray",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 143.234375,
-        "height": 53.07007155282204,
-        "w": 143,
-        "h": 53
+        "width": 144.546875,
+        "height": 47.694465273832165,
+        "w": 145,
+        "h": 48
       }
     ],
     [
       105,
       {
         "id": 105,
-        "x": 1577.071596201865,
-        "y": 830.4737361298988,
+        "x": 287.6799148713859,
+        "y": 1223.148981088901,
         "text": "Tunnel Cutout",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 225.15625,
-        "height": 53.07007155282204,
-        "w": 225,
-        "h": 53
+        "width": 221.59375,
+        "height": 47.694465273832165,
+        "w": 222,
+        "h": 48
       }
     ],
     [
       106,
       {
         "id": 106,
-        "x": 1266.6545612317439,
-        "y": 657.529165516472,
+        "x": 246.151605528021,
+        "y": 966.1177923958612,
         "text": "Camera Distance",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 251.828125,
-        "height": 53.07007155282204,
-        "w": 252,
-        "h": 53
+        "width": 253.578125,
+        "height": 47.694465273832165,
+        "w": 254,
+        "h": 48
       }
     ],
     [
       107,
       {
         "id": 107,
-        "x": -640.7471056442928,
-        "y": 713.9832417208279,
+        "x": -1043.1998519308152,
+        "y": 16.213542464765155,
         "text": "Iterative",
         "color": "#06b6d4",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 182.828125,
-        "height": 60.62083578791717,
-        "w": 183,
-        "h": 61
+        "width": 179.015625,
+        "height": 53.02551392068281,
+        "w": 179,
+        "h": 53
       }
     ],
     [
       108,
       {
         "id": 108,
-        "x": -1445.0155800269813,
-        "y": 1181.0502753925366,
+        "x": -1258.705043257115,
+        "y": 386.0547436817981,
         "text": "Physically Based Rendering Texturing",
         "color": "#EAB308",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 300.96875,
-        "height": 146.69090734073922,
-        "w": 301,
-        "h": 147
+        "width": 293.375,
+        "height": 118.71997919451496,
+        "w": 293,
+        "h": 119
       }
     ],
     [
       109,
       {
         "id": 109,
-        "x": -1149.599717207198,
-        "y": 1502.700658645221,
+        "x": -1041.3723875911785,
+        "y": 616.6645042762926,
         "text": "Color/Albedo",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 215.609375,
-        "height": 53.07007155282204,
-        "w": 216,
-        "h": 53
+        "width": 211.578125,
+        "height": 47.694465273832165,
+        "w": 212,
+        "h": 48
       }
     ],
     [
       110,
       {
         "id": 110,
-        "x": -1704.1949696932445,
-        "y": 1046.8195056366244,
+        "x": -1367.6859078128377,
+        "y": 192.22037898000224,
         "text": "Roughness",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 195.734375,
-        "height": 53.07007155282204,
-        "w": 196,
-        "h": 53
+        "width": 193.546875,
+        "height": 47.694465273832165,
+        "w": 194,
+        "h": 48
       }
     ],
     [
       111,
       {
         "id": 111,
-        "x": -1709.3690777398115,
-        "y": 1384.813948193697,
+        "x": -1464.2506545207946,
+        "y": 442.29319328260055,
         "text": "Normal",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 161.953125,
-        "height": 53.07007155282204,
-        "w": 162,
-        "h": 53
+        "width": 158.6875,
+        "height": 47.694465273832165,
+        "w": 159,
+        "h": 48
       }
     ],
     [
       112,
       {
         "id": 112,
-        "x": -1422.797255717937,
-        "y": 1609.2632318650433,
+        "x": -1276.9139781161734,
+        "y": 694.0878852378775,
         "text": "Metallic",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 164.90625,
-        "height": 53.07007155282204,
-        "w": 165,
-        "h": 53
+        "width": 163.390625,
+        "height": 47.694465273832165,
+        "w": 163,
+        "h": 48
       }
     ],
     [
       113,
       {
         "id": 113,
-        "x": 774.5768533234261,
-        "y": 1626.6639806768671,
+        "x": -486.90813794836396,
+        "y": 1102.381501509049,
         "text": "Reflective",
         "color": "#EAB308",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 215.5625,
-        "height": 72.69090734073922,
-        "w": 216,
-        "h": 73
+        "width": 212.09375,
+        "height": 62.71997919451497,
+        "w": 212,
+        "h": 63
       }
     ],
     [
       114,
       {
         "id": 114,
-        "x": 1077.2370871349563,
-        "y": 1885.7675624058745,
+        "x": -693.8805250169623,
+        "y": 1279.1814467925874,
         "text": "CD Disc",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 162.015625,
-        "height": 53.07007155282204,
-        "w": 162,
-        "h": 53
+        "width": 164.140625,
+        "height": 47.694465273832165,
+        "w": 164,
+        "h": 48
       }
     ],
     [
       115,
       {
         "id": 115,
-        "x": 505.69816595238115,
-        "y": 1838.2656699533784,
+        "x": -215.41441275534103,
+        "y": 1210.4913066449412,
         "text": "Mirror",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 150.921875,
-        "height": 53.07007155282204,
-        "w": 151,
-        "h": 53
+        "width": 145.90625,
+        "height": 47.694465273832165,
+        "w": 146,
+        "h": 48
       }
     ],
     [
       116,
       {
         "id": 116,
-        "x": 1137.1940396499622,
-        "y": 1560.1426201213555,
+        "x": -733.4474418912224,
+        "y": 1038.9120940507014,
         "text": "Portals",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 157.0625,
-        "height": 53.07007155282204,
-        "w": 157,
-        "h": 53
+        "width": 154.421875,
+        "height": 47.694465273832165,
+        "w": 154,
+        "h": 48
       }
     ],
     [
       117,
       {
         "id": 117,
-        "x": 749.5660350264914,
-        "y": 2022.0197055939666,
+        "x": -417.43744761040904,
+        "y": 1387.920146647794,
         "text": "Water",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 147.421875,
-        "height": 53.07007155282204,
-        "w": 147,
-        "h": 53
+        "width": 146.125,
+        "height": 47.694465273832165,
+        "w": 146,
+        "h": 48
       }
     ],
     [
       118,
       {
         "id": 118,
-        "x": -1922.655324140202,
-        "y": 279.66825814924715,
+        "x": -1040.7285602775576,
+        "y": -896.9616112532354,
         "text": "Expansive player controller",
         "color": "#8B5CF6",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 250.328125,
-        "height": 80.07007155282204,
-        "w": 250,
-        "h": 80
+        "width": 252.734375,
+        "height": 69.69446527383217,
+        "w": 253,
+        "h": 70
       }
     ],
     [
       121,
       {
         "id": 121,
-        "x": 581.5340281362413,
-        "y": -825.9322207003443,
+        "x": 126.23605192478352,
+        "y": -1.268695995207184,
         "text": "Themes",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 184.21875,
-        "height": 68.09426967647406,
-        "w": 184,
-        "h": 68
+        "width": 188.921875,
+        "height": 62.71997919451497,
+        "w": 189,
+        "h": 63
       }
     ],
     [
       122,
       {
         "id": 122,
-        "x": 985.3771964395262,
-        "y": -1066.4625245314646,
+        "x": 284.0482473132391,
+        "y": 187.5496934766281,
         "text": "Analog vs Discrete",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 301.0625,
-        "height": 65.14014310564409,
-        "w": 301,
-        "h": 65
+        "width": 297.484375,
+        "height": 57.38893054766433,
+        "w": 297,
+        "h": 57
       }
     ],
     [
       123,
       {
         "id": 123,
-        "x": 1374.3286098484016,
-        "y": -1168.7539706553541,
+        "x": 516.5588038278661,
+        "y": 271.2382523784887,
         "text": "Analog as continuous, lossy, singular",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 260.03125,
-        "height": 250.28408586338645,
+        "width": 260.359375,
+        "height": 210.8333583285986,
         "w": 260,
-        "h": 250,
+        "h": 211,
         "body": "The analog being is defined by decay, mortality, and un-copyability. Its signature property is that it cannot be reproduced without remainder."
       }
     ],
@@ -996,98 +978,468 @@
       124,
       {
         "id": 124,
-        "x": -992.8532492764655,
-        "y": -1226.0780102640454,
+        "x": -243.35100847568762,
+        "y": -658.9584399574147,
         "text": "Work",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 152.8125,
-        "height": 68.09426967647406,
-        "w": 153,
-        "h": 68
+        "width": 159.484375,
+        "height": 68.05102784136562,
+        "w": 159,
+        "h": 68,
+        "body": "\n"
       }
     ],
     [
       125,
       {
         "id": 125,
-        "x": -1477.8073176871649,
-        "y": -1384.893939484381,
+        "x": -261.45073398638516,
+        "y": -963.7993016153468,
         "text": "CCHI Serology",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 252.578125,
-        "height": 65.14014310564409,
-        "w": 253,
-        "h": 65
+        "width": 248.984375,
+        "height": 57.38893054766433,
+        "w": 249,
+        "h": 57
       }
     ],
     [
       126,
       {
         "id": 126,
-        "x": -1824.4320880638447,
-        "y": -1288.198939114239,
+        "x": -374.99244847962854,
+        "y": -1222.0507359132093,
         "text": "RIP Presentation",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 249.390625,
-        "height": 53.07007155282204,
-        "w": 249,
-        "h": 53
+        "width": 245.484375,
+        "height": 47.694465273832165,
+        "w": 245,
+        "h": 48,
+        "body": " "
       }
     ],
     [
       127,
       {
         "id": 127,
-        "x": -1631.1015520759317,
-        "y": -1670.3763441356061,
+        "x": -131.5093387608584,
+        "y": -1181.2770288297756,
         "text": "Plasma acquisition",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 268.765625,
-        "height": 53.07007155282204,
-        "w": 269,
-        "h": 53
+        "width": 267.34375,
+        "height": 47.694465273832165,
+        "w": 267,
+        "h": 48
       }
     ],
     [
       128,
       {
         "id": 128,
-        "x": 1221.1923709922798,
-        "y": -1487.2554258746873,
+        "x": 362.1918281863901,
+        "y": -150.95537618242776,
         "text": "Discrete as exact, preservable, generic",
         "color": "none",
         "fontSize": 14,
         "align": "center",
         "bold": false,
         "italic": false,
-        "width": 255.984375,
-        "height": 296.28408586338645,
-        "w": 256,
-        "h": 296,
-        "body": "The digital system is defined by clean copying, versioning, and preservation. Its signature property is that it can be reproduced perfectly and therefore cannot be uniquely itself."
+        "width": 260.140625,
+        "height": 248.8333583285986,
+        "w": 260,
+        "h": 249,
+        "body": "The digital system is defined by clean copying, versioning, and preservation. Its signature property is that it can be reproduced perfectly and therefore cannot be uniquely itself"
+      }
+    ],
+    [
+      131,
+      {
+        "id": 131,
+        "x": 267.01853071957174,
+        "y": -293.45077888272874,
+        "text": "Chores",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 200.46875,
+        "height": 79.61106945233567,
+        "w": 200,
+        "h": 80
+      }
+    ],
+    [
+      132,
+      {
+        "id": 132,
+        "x": 855.5774121281278,
+        "y": 900.9385505004983,
+        "text": "Cloudrig Pipeline",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 249.640625,
+        "height": 47.694465273832165,
+        "w": 250,
+        "h": 48
+      }
+    ],
+    [
+      133,
+      {
+        "id": 133,
+        "x": 766.7482149652785,
+        "y": -825.1061081096739,
+        "text": "Deep clean",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 247.328125,
+        "height": 260.6395358634325,
+        "w": 247,
+        "h": 261,
+        "body": "Declutter first\n\nWorking top-to-bottom\n\nPre-treat if possible"
+      }
+    ],
+    [
+      134,
+      {
+        "id": 134,
+        "x": 603.2322327463155,
+        "y": -1003.8162710214287,
+        "text": "Kitchen",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 191.3125,
+        "height": 67.08339582149648,
+        "w": 191,
+        "h": 67
+      }
+    ],
+    [
+      135,
+      {
+        "id": 135,
+        "x": 1038.099329995083,
+        "y": -555.7815897965112,
+        "text": "Bathroom",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 183.234375,
+        "height": 47.694465273832165,
+        "w": 183,
+        "h": 48
+      }
+    ],
+    [
+      136,
+      {
+        "id": 136,
+        "x": 1068.8662900518884,
+        "y": -795.3121458568819,
+        "text": "Living area",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 194.796875,
+        "height": 47.694465273832165,
+        "w": 195,
+        "h": 48
+      }
+    ],
+    [
+      137,
+      {
+        "id": 137,
+        "x": 768.549631068762,
+        "y": -1239.8968895970334,
+        "text": "Oven",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 139.90625,
+        "height": 47.694465273832165,
+        "w": 140,
+        "h": 48
+      }
+    ],
+    [
+      138,
+      {
+        "id": 138,
+        "x": 493.3885561994446,
+        "y": -1347.598509250801,
+        "text": "Microwave",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 191.171875,
+        "height": 223.8333583285986,
+        "w": 191,
+        "h": 224,
+        "body": "Microwave a bowl of water with a sliced lemon or splash of vinegar for 5 minutes; the steam loosens everything and you just wipe it out."
+      }
+    ],
+    [
+      139,
+      {
+        "id": 139,
+        "x": 895.3499022065,
+        "y": -1015.6518603961368,
+        "text": "Stove",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 144.015625,
+        "height": 47.694465273832165,
+        "w": 144,
+        "h": 48
+      }
+    ],
+    [
+      140,
+      {
+        "id": 140,
+        "x": 435.1392578222901,
+        "y": -861.9888320909896,
+        "text": "Dishwasher",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 200.390625,
+        "height": 185.8333583285986,
+        "w": 200,
+        "h": 186,
+        "body": "Run the dishwasher empty with a cup of vinegar on the top rack, then a short cycle with baking soda sprinkled on the bottom"
+      }
+    ],
+    [
+      141,
+      {
+        "id": 141,
+        "x": 339.6266655234491,
+        "y": -1115.3942014679992,
+        "text": "Sink",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 135.453125,
+        "height": 100.83061670481938,
+        "w": 135,
+        "h": 101,
+        "body": "Barkeeper's friend"
+      }
+    ],
+    [
+      142,
+      {
+        "id": 142,
+        "x": 137.25548533595975,
+        "y": -1349.0200337347896,
+        "text": "Garbage disposal",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 255.265625,
+        "height": 90.83335832859859,
+        "w": 255,
+        "h": 91,
+        "body": "run ice cubes with coarse salt and citrus peels"
+      }
+    ],
+    [
+      147,
+      {
+        "id": 147,
+        "x": -468.9556725112188,
+        "y": -842.0381772229724,
+        "text": "Pertussis",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 194.75,
+        "height": 60.222138904671354,
+        "w": 195,
+        "h": 60
+      }
+    ],
+    [
+      148,
+      {
+        "id": 148,
+        "x": -742.6016195874785,
+        "y": -790.6198320645352,
+        "text": "Tetramer validation",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 274.375,
+        "height": 47.694465273832165,
+        "w": 274,
+        "h": 48,
+        "body": "\n"
+      }
+    ],
+    [
+      150,
+      {
+        "id": 150,
+        "x": -650.8085585921845,
+        "y": -1077.966882595001,
+        "text": "sc Sequencing",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 243.03125,
+        "height": 53.02551392068281,
+        "w": 243,
+        "h": 53
+      }
+    ],
+    [
+      153,
+      {
+        "id": 153,
+        "x": -819.604595455256,
+        "y": -1312.198095137102,
+        "text": "Select donors per experiment",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 257.140625,
+        "height": 112.83335832859859,
+        "w": 257,
+        "h": 113,
+        "body": "2 from each cohort (not Sri Lanka)"
+      }
+    ],
+    [
+      154,
+      {
+        "id": 154,
+        "x": 47.99864005397413,
+        "y": -558.0755499144378,
+        "text": "Test",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 135.5625,
+        "height": 57.38893054766433,
+        "w": 136,
+        "h": 57
+      }
+    ],
+    [
+      160,
+      {
+        "id": 160,
+        "x": 98.43612326775524,
+        "y": -803.5783433722695,
+        "text": "A",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 102.984375,
+        "height": 47.694465273832165,
+        "w": 103,
+        "h": 48
+      }
+    ],
+    [
+      161,
+      {
+        "id": 161,
+        "x": 309.2734949136521,
+        "y": -549.5337664328487,
+        "text": "B",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 103.03125,
+        "height": 47.694465273832165,
+        "w": 103,
+        "h": 48
+      }
+    ],
+    [
+      164,
+      {
+        "id": 164,
+        "x": 37.56240176795088,
+        "y": 224.6808566942929,
+        "text": "Mental health",
+        "color": "none",
+        "fontSize": 14,
+        "align": "center",
+        "bold": false,
+        "italic": false,
+        "width": 220.578125,
+        "height": 47.694465273832165,
+        "w": 221,
+        "h": 48
       }
     ]
   ],
   "connections": [
     {
       "from": 14,
-      "to": 15
+      "to": 15,
+      "directed": true
     },
     {
       "from": 26,
@@ -1111,7 +1463,8 @@
     },
     {
       "from": 21,
-      "to": 14
+      "to": 14,
+      "directed": true
     },
     {
       "from": 21,
@@ -1151,11 +1504,6 @@
     {
       "from": 39,
       "to": 41,
-      "directed": true
-    },
-    {
-      "from": 64,
-      "to": 63,
       "directed": true
     },
     {
@@ -1224,8 +1572,8 @@
       "directed": true
     },
     {
-      "from": 94,
-      "to": 89,
+      "from": 89,
+      "to": 94,
       "directed": true
     },
     {
@@ -1260,7 +1608,8 @@
     },
     {
       "from": 26,
-      "to": 107
+      "to": 107,
+      "directed": true
     },
     {
       "from": 107,
@@ -1334,11 +1683,6 @@
     },
     {
       "from": 4,
-      "to": 64,
-      "directed": true
-    },
-    {
-      "from": 4,
       "to": 16,
       "directed": true
     },
@@ -1381,7 +1725,112 @@
       "from": 122,
       "to": 128,
       "directed": true
+    },
+    {
+      "from": 4,
+      "to": 131,
+      "directed": true
+    },
+    {
+      "from": 131,
+      "to": 64,
+      "directed": true
+    },
+    {
+      "from": 39,
+      "to": 132,
+      "directed": true
+    },
+    {
+      "from": 68,
+      "to": 133,
+      "directed": true
+    },
+    {
+      "from": 133,
+      "to": 134,
+      "directed": true
+    },
+    {
+      "from": 133,
+      "to": 135,
+      "directed": true
+    },
+    {
+      "from": 133,
+      "to": 136,
+      "directed": true
+    },
+    {
+      "from": 134,
+      "to": 137,
+      "directed": true
+    },
+    {
+      "from": 134,
+      "to": 138,
+      "directed": true
+    },
+    {
+      "from": 134,
+      "to": 139,
+      "directed": true
+    },
+    {
+      "from": 134,
+      "to": 140,
+      "directed": true
+    },
+    {
+      "from": 134,
+      "to": 141,
+      "directed": true
+    },
+    {
+      "from": 141,
+      "to": 142,
+      "directed": true
+    },
+    {
+      "from": 124,
+      "to": 147,
+      "directed": true
+    },
+    {
+      "from": 147,
+      "to": 148,
+      "directed": true
+    },
+    {
+      "from": 147,
+      "to": 150,
+      "directed": true
+    },
+    {
+      "from": 150,
+      "to": 153,
+      "directed": true
+    },
+    {
+      "from": 4,
+      "to": 154,
+      "directed": true
+    },
+    {
+      "from": 154,
+      "to": 160,
+      "directed": true
+    },
+    {
+      "from": 154,
+      "to": 161,
+      "directed": true
+    },
+    {
+      "from": 121,
+      "to": 164,
+      "directed": true
     }
   ],
-  "nodeIdCounter": 130
+  "nodeIdCounter": 166
 }

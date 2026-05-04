@@ -5,11 +5,19 @@ import argparse
 import sys
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtCore import QSettings, Qt
+from PyQt5.QtGui import QColor, QIcon, QPalette
 from PyQt5.QtWidgets import QApplication
 
 from .mainwindow import LiveMainWindow
+
+
+ICON_PATH = Path(__file__).with_name("resources") / "icon.png"
+# Identifiers used for QSettings so the "recent file" entry lands in a
+# stable location on every platform.
+ORG_NAME = "pymindmap"
+APP_NAME = "pymindmap-live"
+RECENT_KEY = "recent_path"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,14 +35,36 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    # QSettings (used by the main window to persist the last-opened file)
+    # picks up these identifiers automatically.
+    app.setOrganizationName(ORG_NAME)
+    app.setApplicationName(APP_NAME)
     _apply_palette(app)
 
+    icon = QIcon(str(ICON_PATH)) if ICON_PATH.exists() else QIcon()
+    if not icon.isNull():
+        app.setWindowIcon(icon)
+
     win = LiveMainWindow()
+    if not icon.isNull():
+        win.setWindowIcon(icon)
     win.show()
+
+    # Open precedence: explicit CLI arg → most recently opened file.
+    path_to_open: Path | None = None
     if args.path:
         p = Path(args.path)
         if p.exists():
-            win.load_path(p)
+            path_to_open = p
+    else:
+        settings = QSettings()
+        recent = settings.value(RECENT_KEY, "", type=str)
+        if recent:
+            p = Path(recent)
+            if p.exists():
+                path_to_open = p
+    if path_to_open is not None:
+        win.load_path(path_to_open)
 
     return app.exec_()
 

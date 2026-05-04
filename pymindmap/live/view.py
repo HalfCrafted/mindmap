@@ -29,10 +29,10 @@ from .items import LiveNodeItem
 
 ZOOM_MIN = 0.1
 ZOOM_MAX = 4.0
-# Base used to convert wheel/trackpad delta into a continuous zoom factor.
-# Exponential so every pixel/degree of input applies the same *multiplier*,
-# which feels linear to the eye regardless of current zoom level.
-ZOOM_PER_120 = 1.15          # one standard wheel notch
+# Per-notch zoom factor. Smaller = finer control, more notches needed to
+# reach a target. Exponential so every pixel/degree of input applies the
+# same multiplier — feels linear to the eye regardless of current zoom.
+ZOOM_PER_120 = 1.12
 MARQUEE_FILL = "#7c7cf522"
 MARQUEE_STROKE = "#7c7cf5"
 PREVIEW_COLOR = "#7c7cf5"
@@ -61,12 +61,20 @@ class LiveMindMapView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setMouseTracking(True)
         self.setFrameShape(QGraphicsView.NoFrame)
-        # Cache the dotted-grid background so panning doesn't redraw 2000+
-        # dots every frame — huge perceived smoothness win.
-        self.setCacheMode(QGraphicsView.CacheBackground)
+        # Background cache deliberately disabled. CacheBackground stretches
+        # the cached pixmap during zoom (scale changes) until Qt rebuilds
+        # it on the next paint, which produces a visible "ghost" of the
+        # pre-scale grid for one frame and can read as a directional
+        # glitch on every wheel notch.
+        self.setCacheMode(QGraphicsView.CacheNone)
 
         self._panning = False
         self._pan_start: Optional[QPointF] = None
+        # Sub-pixel pan accumulator: scrollbars only accept ints, so trackpad
+        # pixelDelta events that report fractional or 1-pixel motion would
+        # otherwise stair-step. We integrate fractions across events.
+        self._pan_accum_x: float = 0.0
+        self._pan_accum_y: float = 0.0
 
         self._marquee: Optional[QGraphicsRectItem] = None
         self._marquee_origin: Optional[QPointF] = None
@@ -82,34 +90,48 @@ class LiveMindMapView(QGraphicsView):
     # ---- zoom / wheel-pan -------------------------------------------------
     def wheelEvent(self, event):
         """Wheel = zoom. Shift+wheel = horizontal pan. Trackpad 2-finger
-        scroll (pixelDelta) pans the canvas; hold Ctrl to zoom instead.
+        scroll pans the canvas; hold Ctrl to zoom instead.
 
-        Zoom is continuous: dy=120 (one detent) → ZOOM_PER_120 multiplier,
-        any finer input scales proportionally. Feels linear at every zoom
-        level and avoids the chunky steps the old code produced near the
-        min/max clamps.
+        Trackpad vs wheel is detected via ``event.phase()`` — trackpads
+        emit ScrollBegin/Update/End/Momentum phases, real mouse wheels
+        emit NoScrollPhase. ``pixelDelta`` is unreliable for this on
+        Linux + libinput because high-resolution mouse wheels populate
+        pixelDelta in their smooth-scroll mode, and the old check would
+        misclassify every wheel notch as a trackpad pan.
         """
         pixel = event.pixelDelta()
         angle = event.angleDelta()
         mods = event.modifiers()
+        phase = event.phase()
+        is_continuous = phase != Qt.NoScrollPhase
 
-        # Trackpad two-finger scroll: pan unless Ctrl is held (zoom gesture).
-        if not pixel.isNull() and not (mods & Qt.ControlModifier):
-            self._pan_by_pixels(pixel.x(), pixel.y())
+        # Optional debug — set MINDMAP_WHEEL_DEBUG=1 to log wheel decisions.
+        import os
+        if os.environ.get("MINDMAP_WHEEL_DEBUG"):
+            import sys
+            print(
+                f"wheel: pixel={pixel.x(),pixel.y()} angle={angle.x(),angle.y()} "
+                f"phase={int(phase)} continuous={is_continuous} mods={int(mods)}",
+                file=sys.stderr, flush=True,
+            )
+
+        # Trackpad continuous scroll: pan unless Ctrl is held (pinch zoom).
+        if is_continuous and not (mods & Qt.ControlModifier):
+            delta = pixel if not pixel.isNull() else angle
+            self._pan_by_pixels(delta.x(), delta.y())
             event.accept()
             return
 
+        # Mouse-wheel path (or Ctrl+anything).
         dy = angle.y() if not angle.isNull() else pixel.y()
         dx = angle.x() if not angle.isNull() else pixel.x()
         if dy == 0 and dx == 0:
             return
 
         # Shift+wheel → horizontal pan (common convention on mouse wheels).
-        if mods & Qt.ShiftModifier and dx == 0:
-            dx, dy = dy, 0
-
         if mods & Qt.ShiftModifier:
-            # Treat any wheel motion as pan when Shift is down.
+            if dx == 0:
+                dx, dy = dy, 0
             self._pan_by_pixels(dx or 0, dy or 0)
             event.accept()
             return
@@ -120,34 +142,57 @@ class LiveMindMapView(QGraphicsView):
         event.accept()
 
     def _zoom_by(self, factor: float, anchor_pos):
+        """Apply ``factor`` to the current zoom, anchored at ``anchor_pos``.
+
+        Instant — no animation, no chase. Each event produces its full
+        scale change on the same paint as the input, so wheel input maps
+        1:1 to visible motion with zero perceived latency.
+        """
         cur = self.current_scale()
         target = max(ZOOM_MIN, min(ZOOM_MAX, cur * factor))
-        actual = target / cur
-        if abs(actual - 1.0) < 1e-4:
+        if abs(target / cur - 1.0) < 1e-4:
             return
-        # Manually pin anchor_pos (view coords) to its pre-scale scene point.
-        # AnchorUnderMouse relies on QCursor::pos() at the moment `scale()`
-        # runs, which can lag behind rapid wheel / trackpad events and makes
-        # the view drift away from the cursor. Reading the position from the
-        # wheel event itself is deterministic.
+        anchor_scene = self.mapToScene(anchor_pos)
+        self._set_scale_anchored(target, anchor_scene, anchor_pos)
+
+    def _set_scale_anchored(self, target_scale: float, anchor_scene, anchor_pos_view):
+        """Set the absolute view scale, keeping ``anchor_scene`` pinned at
+        ``anchor_pos_view`` in view coordinates."""
+        cur = self.current_scale()
+        f = target_scale / cur
+        if abs(f - 1.0) < 1e-6:
+            return
         old_anchor = self.transformationAnchor()
         self.setTransformationAnchor(QGraphicsView.NoAnchor)
-        before = self.mapToScene(anchor_pos)
-        self.scale(actual, actual)
-        after = self.mapToScene(anchor_pos)
-        delta = after - before
+        self.scale(f, f)
+        after = self.mapToScene(anchor_pos_view)
+        delta = after - anchor_scene
         self.translate(delta.x(), delta.y())
         self.setTransformationAnchor(old_anchor)
         self.zoom_changed.emit(self.current_scale())
 
     def _pan_by_pixels(self, dx: float, dy: float):
-        """Scroll the viewport by `dx,dy` view-pixels (positive dy = down)."""
+        """Scroll the viewport by ``dx, dy`` view-pixels.
+
+        Scrollbars only accept ints, so we accumulate fractional deltas and
+        emit whole-pixel steps when they pile up. This keeps high-DPI
+        trackpad gestures from stair-stepping when each event reports a
+        small pixelDelta.
+        """
         if dx:
-            sb = self.horizontalScrollBar()
-            sb.setValue(sb.value() - int(round(dx)))
+            self._pan_accum_x += dx
         if dy:
+            self._pan_accum_y += dy
+        int_dx = int(self._pan_accum_x)
+        int_dy = int(self._pan_accum_y)
+        self._pan_accum_x -= int_dx
+        self._pan_accum_y -= int_dy
+        if int_dx:
+            sb = self.horizontalScrollBar()
+            sb.setValue(sb.value() - int_dx)
+        if int_dy:
             sb = self.verticalScrollBar()
-            sb.setValue(sb.value() - int(round(dy)))
+            sb.setValue(sb.value() - int_dy)
 
     def current_scale(self) -> float:
         return self.transform().m11()

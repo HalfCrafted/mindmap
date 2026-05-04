@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import QSettings, QSize, Qt
 from PyQt5.QtGui import QColor, QFont, QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QSplitter,
     QTextEdit,
     QToolButton,
@@ -320,6 +321,29 @@ class LiveMainWindow(QMainWindow):
         icon_btn("Add note", "Add note at center", self.add_note_at_center, shortcut="Shift+A")
         icon_btn("Fit", "Fit all to view", self.view.fit_all, shortcut=".")
         icon_btn("Re-arrange", "Re-run auto-layout", lambda: self.scene.schedule_layout(fresh=True), shortcut="Ctrl+L")
+
+        # Spread / cluster — multiplies the physics repulsion strength.
+        # Persisted in QSettings so the user's preference survives restarts.
+        sep_spread = QFrame(); sep_spread.setFrameShape(QFrame.VLine); sep_spread.setStyleSheet(f"color:{BORDER};")
+        h.addWidget(sep_spread)
+        spread_label = QLabel("Spread")
+        spread_label.setObjectName("AppSubtitle")
+        h.addWidget(spread_label)
+        self._spread_slider = QSlider(Qt.Horizontal)
+        # Logarithmic feel: slider value 0..200 maps to scale 0.25..4.0 via
+        # exp interpolation, so the centre tick is the baseline (1.0) and
+        # each end is two octaves out.
+        self._spread_slider.setRange(0, 200)
+        self._spread_slider.setFixedWidth(140)
+        self._spread_slider.setToolTip(
+            "Repulsion strength — lower = clustered, higher = spread out"
+        )
+        settings = QSettings()
+        saved_scale = float(settings.value("spread_scale", 1.0))
+        self._spread_slider.setValue(self._scale_to_slider(saved_scale))
+        self.scene.set_repulsion_scale(saved_scale)
+        self._spread_slider.valueChanged.connect(self._on_spread_changed)
+        h.addWidget(self._spread_slider)
 
         h.addStretch(1)
 
@@ -714,6 +738,21 @@ class LiveMainWindow(QMainWindow):
         if self._focus_btn.isChecked():
             self._update_focus_emphasis()
 
+    # ---- spread slider --------------------------------------------------
+    def _slider_to_scale(self, value: int) -> float:
+        # 0 → 0.25, 100 (centre) → 1.0, 200 → 4.0. Two octaves either side.
+        import math
+        return 2.0 ** ((value - 100) / 50.0)
+
+    def _scale_to_slider(self, scale: float) -> int:
+        import math
+        return int(round(100 + 50.0 * math.log2(max(0.05, min(8.0, scale)))))
+
+    def _on_spread_changed(self, value: int):
+        scale = self._slider_to_scale(value)
+        self.scene.set_repulsion_scale(scale)
+        QSettings().setValue("spread_scale", scale)
+
     def _update_focus_emphasis(self):
         n = self._selected_single_node()
         if n is None:
@@ -841,6 +880,7 @@ class LiveMainWindow(QMainWindow):
         self.scene.rebuild_all()
         self.undo_stack.clear()
         self.current_path = path
+        self._remember_recent(path)
         self._update_title()
         self._refresh_counts()
         self._sync_inspector()
@@ -865,6 +905,7 @@ class LiveMainWindow(QMainWindow):
         try:
             mio.save_graph(self.scene.graph, self.current_path)
             self.undo_stack.setClean()
+            self._remember_recent(self.current_path)
             self._status_label.setText(f"Saved {self.current_path.name}")
         except Exception as e:
             QMessageBox.critical(self, "Save failed", str(e))
@@ -883,6 +924,11 @@ class LiveMainWindow(QMainWindow):
         r = QMessageBox.question(self, "Unsaved changes", "Discard unsaved changes?",
                                  QMessageBox.Discard | QMessageBox.Cancel)
         return r == QMessageBox.Discard
+
+    def _remember_recent(self, path: Path) -> None:
+        """Persist the given path as the most recently opened file so the
+        next launch can reopen it automatically."""
+        QSettings().setValue("recent_path", str(path))
 
     # ---- status ----------------------------------------------------------
     def _update_title(self, *_):
