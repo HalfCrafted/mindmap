@@ -24,6 +24,15 @@ class Node:
     body: str = ""                         # long-form notes, shown in inspector
     collapsed: bool = False                # live variant: hide BFS descendants
 
+    # Optional integrations. ``reminder`` schedules a notify-send (or, later,
+    # a remote claude run) via the user's crontab/at — see
+    # pymindmap.integrations.reminder. ``dir_links`` maps a Tailscale device
+    # name (e.g. "fedora-desktop") to the local filesystem path that node
+    # represents on that device, so a single mind-map node can point at
+    # /home/me/foo on Linux and /Users/me/foo on a Mac.
+    reminder: Optional[Dict[str, str]] = None
+    dir_links: Dict[str, str] = field(default_factory=dict)
+
     def center(self) -> tuple[float, float]:
         return (self.x + self.width / 2, self.y + self.height / 2)
 

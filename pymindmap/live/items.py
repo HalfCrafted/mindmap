@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from ..integrations import dir_link as dirlink
 from ..items import ConnectionItem
 from ..model import Node
 from ..theme import THEME
@@ -91,6 +92,14 @@ CARD_ACCENT = "#7c7cf5"
 BADGE_BG = "#2a2a38"
 BADGE_FG = "#c7c7d8"
 
+# Title-row left-side icons — sized + spaced consistently with the gutter
+# math in recompute_size so the title text never overlaps them.
+FOLDER_ICON_W = 16.0
+FOLDER_ICON_H = 16.0
+BELL_ICON_W = 14.0
+BELL_ICON_H = 14.0
+ICON_PAD = 4.0
+
 
 class LiveNodeItem(QGraphicsObject):
     def __init__(self, node: Node, scene: "LiveMindMapScene"):
@@ -99,10 +108,12 @@ class LiveNodeItem(QGraphicsObject):
         self._scene = scene
         self._hover = False
 
-        # Positions are controlled by auto-layout — nodes are NOT user-movable.
-        # Selection is still allowed (for inspecting / connecting).
+        # Movable so the user can drag nodes by hand. The press/release
+        # handlers below pin the node against the physics simulator while
+        # the user holds it, so dragging doesn't fight repulsion forces.
         self.setFlags(
             QGraphicsItem.ItemIsSelectable
+            | QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemSendsGeometryChanges
         )
         self.setAcceptHoverEvents(True)
@@ -199,11 +210,20 @@ class LiveNodeItem(QGraphicsObject):
         button_h = badge_h
 
         # Gutter = symmetric reserved space, sized to fit whichever side has
-        # the larger icon. Ensures centered title sits visually centered no
-        # matter which icons are shown.
+        # the larger icon stack. The chevron, folder, and bell all live on
+        # the left; the degree badge lives on the right. Title is centred
+        # in the remaining width.
         icon_inset = 8.0
         icon_gap = 10.0
-        left_need = (icon_inset + button_w + icon_gap) if has_children else pad_x
+        left_extras = 0.0
+        if self.node.dir_links:
+            left_extras += FOLDER_ICON_W + ICON_PAD
+        if self.node.reminder:
+            left_extras += BELL_ICON_W + ICON_PAD
+        left_need = (icon_inset + (button_w if has_children else 0.0)
+                     + left_extras + icon_gap)
+        if not has_children and left_extras == 0.0:
+            left_need = pad_x
         right_need = (icon_inset + badge_w + icon_gap) if deg > 0 else pad_x
         gutter = max(left_need, right_need, pad_x)
 
@@ -394,6 +414,74 @@ class LiveNodeItem(QGraphicsObject):
         else:
             self._button_rect = None
 
+        # ---- Folder + bell icons (left side) -------------------------------
+        # Stacked left-to-right after the chevron, inside the gutter that
+        # recompute_size reserved for them. Folder is interactive (click
+        # → open path); bell is decorative.
+        self._folder_rect: Optional[QRectF] = None
+        self._folder_resolved_path = None
+        # Start just right of the chevron (or at the icon inset if no chevron).
+        if self._button_rect is not None:
+            icon_x = self._button_rect.right() + ICON_PAD
+        else:
+            icon_x = 8.0
+        if self.node.dir_links:
+            resolved = dirlink.resolve_path(self.node.dir_links)
+            exists = dirlink.path_exists(resolved)
+            fbx = icon_x
+            fby = first_line_center_y - FOLDER_ICON_H / 2.0
+            self._folder_rect = QRectF(fbx, fby, FOLDER_ICON_W, FOLDER_ICON_H)
+            self._folder_resolved_path = resolved if exists else None
+            painter.save()
+            tint = QColor(BADGE_FG)
+            tint.setAlpha(230 if exists else 110)
+            pen = QPen(tint, 1.4)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            tab_w = FOLDER_ICON_W * 0.42
+            tab_h = FOLDER_ICON_H * 0.18
+            body_top = fby + tab_h
+            body = QPainterPath()
+            body.moveTo(fbx, body_top)
+            body.lineTo(fbx, fby)
+            body.lineTo(fbx + tab_w, fby)
+            body.lineTo(fbx + tab_w + 1.6, body_top)
+            body.lineTo(fbx + FOLDER_ICON_W, body_top)
+            body.lineTo(fbx + FOLDER_ICON_W, fby + FOLDER_ICON_H)
+            body.lineTo(fbx, fby + FOLDER_ICON_H)
+            body.closeSubpath()
+            painter.drawPath(body)
+            painter.restore()
+            icon_x += FOLDER_ICON_W + ICON_PAD
+        if self.node.reminder:
+            ibx = icon_x
+            iby = first_line_center_y - BELL_ICON_H / 2.0
+            painter.save()
+            tint = QColor(BADGE_FG)
+            tint.setAlpha(220)
+            pen = QPen(tint, 1.4)
+            pen.setJoinStyle(Qt.RoundJoin)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            cx = ibx + BELL_ICON_W / 2.0
+            bell = QPainterPath()
+            bell.moveTo(ibx + 2.0, iby + BELL_ICON_H - 3.0)
+            bell.lineTo(ibx + BELL_ICON_W - 2.0, iby + BELL_ICON_H - 3.0)
+            bell.moveTo(ibx + 1.5, iby + BELL_ICON_H - 3.0)
+            bell.cubicTo(
+                ibx + 1.5, iby + 2.0,
+                ibx + BELL_ICON_W - 1.5, iby + 2.0,
+                ibx + BELL_ICON_W - 1.5, iby + BELL_ICON_H - 3.0,
+            )
+            bell.moveTo(cx - 1.5, iby + BELL_ICON_H - 2.0)
+            bell.lineTo(cx + 1.5, iby + BELL_ICON_H - 2.0)
+            bell.moveTo(cx, iby + BELL_ICON_H - 2.0)
+            bell.lineTo(cx, iby + BELL_ICON_H - 0.5)
+            painter.drawPath(bell)
+            painter.restore()
+
         # ---- Title (centered) ----------------------------------------------
         painter.setFont(self._cached_title_font)
         painter.setPen(QPen(QColor(CARD_TITLE)))
@@ -446,6 +534,15 @@ class LiveNodeItem(QGraphicsObject):
                 and self._cached_has_children and btn.contains(event.pos())):
             if self._scene is not None:
                 self._scene.toggle_collapse(self.node.id)
+            event.accept()
+            return
+        # Folder icon: open the linked path on left-click.
+        folder = getattr(self, "_folder_rect", None)
+        path = getattr(self, "_folder_resolved_path", None)
+        if (folder is not None and path
+                and event.button() == Qt.LeftButton
+                and folder.contains(event.pos())):
+            dirlink.open_path(path)
             event.accept()
             return
         # Pin against the physics simulator while the user is interacting
@@ -576,22 +673,34 @@ class LiveConnectionItem(ConnectionItem):
             self._draw_arrowhead(painter, width, col)
 
     def _draw_arrowhead(self, painter: QPainter, line_w: float, color: str):
-        """Filled arrowhead at the midpoint of the path, pointing from→to.
+        """Filled arrowhead near the path midpoint, pointing from→to.
 
-        Midpoint (by arc length — Qt's ``pointAtPercent`` is arc-parameterised)
-        keeps the marker well clear of both endpoints where it would be
-        partially hidden behind the cards.
+        Direction is the *chord* through a small window around the
+        midpoint rather than the local cubic tangent. The local tangent
+        swings wildly at any S-bend and can produce arrowheads pointing
+        sideways to the obvious direction of flow; the chord smooths
+        that out and gives a stable pointing direction even on
+        imperfect curves. Sizing combines a floor (visibility), a
+        line-width cap (trunk edges stay prominent), and an arc-length
+        cap (don't oversize on tiny curves).
         """
         path = self._path
-        if path.length() <= 0:
+        arc = path.length()
+        if arc <= 0:
             return
-        t = 0.5
-        pt = path.pointAtPercent(t)
-        angle = -math.radians(path.angleAtPercent(t))  # flip — scene y grows down
-        # Centre the arrow on the midpoint so the tip sits *past* the centre
-        # and the tail sits *before* it; otherwise the whole arrow drifts
-        # toward the ``to`` end and looks off-centre.
-        size = max(9.0, line_w * 3.4)
+        # Chord-based angle: vector from t=0.42 to t=0.58 (about a sixth
+        # of the curve straddling the midpoint). Wide enough to wash out
+        # local wiggles, narrow enough to still represent the midpoint
+        # direction faithfully.
+        pt_a = path.pointAtPercent(0.42)
+        pt_b = path.pointAtPercent(0.58)
+        cdx = pt_b.x() - pt_a.x()
+        cdy = pt_b.y() - pt_a.y()
+        if cdx == 0 and cdy == 0:
+            return
+        angle = math.atan2(cdy, cdx)
+        pt = path.pointAtPercent(0.5)
+        size = max(8.0, min(line_w * 2.6, arc * 0.28))
         cos_a, sin_a = math.cos(angle), math.sin(angle)
         half_len = size / 2.0
         tip = (pt.x() + cos_a * half_len, pt.y() + sin_a * half_len)

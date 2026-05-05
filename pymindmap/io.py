@@ -24,6 +24,14 @@ def _node_from_dict(d: dict) -> Node:
     height = d.get("height") or d.get("h") or 60
     width = float(width)
     height = float(height)
+    reminder = d.get("reminder")
+    if not isinstance(reminder, dict):
+        reminder = None
+    raw_links = d.get("dirLinks") or {}
+    dir_links = {
+        str(k): str(v) for k, v in raw_links.items()
+        if isinstance(k, str) and isinstance(v, str)
+    }
     return Node(
         id=int(d["id"]),
         x=float(d.get("x", 0)),
@@ -38,6 +46,8 @@ def _node_from_dict(d: dict) -> Node:
         italic=bool(d.get("italic", False)),
         body=str(d.get("body", "")),
         collapsed=bool(d.get("collapsed", False)),
+        reminder=reminder,
+        dir_links=dir_links,
     )
 
 
@@ -123,6 +133,10 @@ def _node_to_dict(n: Node) -> dict:
         d["body"] = n.body
     if n.collapsed:
         d["collapsed"] = True
+    if n.reminder:
+        d["reminder"] = n.reminder
+    if n.dir_links:
+        d["dirLinks"] = n.dir_links
     return d
 
 

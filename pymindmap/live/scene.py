@@ -680,7 +680,15 @@ class LiveMindMapScene(QGraphicsScene):
                         cb[1] -= sep
 
         # Edge attraction: each connection is a Hookean spring with rest
-        # length ``PHYSICS_IDEAL_EDGE``.
+        # length scaled by the heavier endpoint's subtree weight. The
+        # baseline applies to leaf-to-leaf edges; an edge feeding a hub
+        # with many descendants is given a longer rest length so the
+        # hub gets pushed outward proportional to the inward repulsion
+        # it absorbs from all of its descendants. Without this, deep
+        # subtrees scrunch their hub into its own parent (the user's
+        # observation: "outer branches stack repellent forces toward the
+        # inner node, squishing the noodle").
+        max_w = max(self.max_subtree_weight(), 1)
         for c in self.graph.connections:
             a_id = c.from_id
             b_id = c.to_id
@@ -691,7 +699,10 @@ class LiveMindMapScene(QGraphicsScene):
             dx = ax - bx
             dy = ay - by
             d = math.sqrt(dx * dx + dy * dy) or 0.01
-            f = PHYSICS_SPRING_K * (d - PHYSICS_IDEAL_EDGE)
+            heavier = max(self.subtree_weight_of(a_id),
+                          self.subtree_weight_of(b_id))
+            ideal = PHYSICS_IDEAL_EDGE + math.sqrt(heavier) * 22.0
+            f = PHYSICS_SPRING_K * (d - ideal)
             ux = dx / d
             uy = dy / d
             forces[a_id][0] -= ux * f

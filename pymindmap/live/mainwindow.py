@@ -30,6 +30,9 @@ from PyQt5.QtWidgets import (
 )
 
 from .. import io as mio
+from ..integrations import dir_link as dirlink
+from ..integrations import mac_delegate as macdg
+from ..integrations import reminder as reminders
 from ..commands import (
     EditNodeCmd,
     RemoveConnectionCmd,
@@ -321,6 +324,10 @@ class LiveMainWindow(QMainWindow):
         icon_btn("Add note", "Add note at center", self.add_note_at_center, shortcut="Shift+A")
         icon_btn("Fit", "Fit all to view", self.view.fit_all, shortcut=".")
         icon_btn("Re-arrange", "Re-run auto-layout", lambda: self.scene.schedule_layout(fresh=True), shortcut="Ctrl+L")
+        icon_btn("Mac log",
+                 "Tail the Mac's reminder log in a terminal "
+                 "(SSH'd live — Ctrl+C to close)",
+                 self._open_mac_log)
 
         # Spread / cluster — multiplies the physics repulsion strength.
         # Persisted in QSettings so the user's preference survives restarts.
@@ -484,6 +491,101 @@ class LiveMainWindow(QMainWindow):
         bi_row.addStretch()
         v.addLayout(bi_row)
 
+        v.addSpacing(6)
+
+        # Divider before integrations.
+        d_int = QFrame(); d_int.setObjectName("Divider"); d_int.setFrameShape(QFrame.HLine)
+        v.addWidget(d_int)
+
+        # Folder shortcut. Per-device paths are stored on the node — the
+        # path field shows whichever path is set for *this* device (the
+        # Tailscale node name). Other devices keep their own entries on
+        # the same dict and round-trip through JSON sync.
+        folder_label = QLabel("FOLDER")
+        folder_label.setObjectName("SidebarHeader")
+        v.addWidget(folder_label)
+        self._folder_check = QCheckBox("Folder shortcut")
+        self._folder_check.toggled.connect(self._on_folder_toggle)
+        v.addWidget(self._folder_check)
+        path_row = QHBoxLayout()
+        path_row.setSpacing(6)
+        self._folder_path = QLineEdit()
+        self._folder_path.setPlaceholderText(
+            f"Path on {dirlink.current_device_key()}…"
+        )
+        self._folder_path.editingFinished.connect(self._commit_folder_path)
+        self._folder_open_btn = QPushButton("Open")
+        self._folder_open_btn.setStyleSheet(
+            f"QPushButton {{ background:{SURFACE_2}; color:{TEXT}; border:1px solid {BORDER}; "
+            f"border-radius:6px; padding:4px 10px; }} "
+            f"QPushButton:hover {{ background:{SURFACE_3}; }} "
+            f"QPushButton:disabled {{ color:{TEXT_DIM}; }}"
+        )
+        self._folder_open_btn.clicked.connect(self._open_folder_for_selected)
+        path_row.addWidget(self._folder_path, 1)
+        path_row.addWidget(self._folder_open_btn)
+        v.addLayout(path_row)
+        self._folder_hint = QLabel("")
+        self._folder_hint.setObjectName("SidebarHint")
+        self._folder_hint.setWordWrap(True)
+        v.addWidget(self._folder_hint)
+
+        v.addSpacing(8)
+
+        # Reminder. The user types a free-form schedule
+        # ("daily at 9am", "in 30 minutes", "every Friday at 5pm");
+        # parse_reminder echoes back what it understood. Saving installs a
+        # crontab/at job tagged with the node id; toggling off removes it.
+        rem_label = QLabel("REMINDER")
+        rem_label.setObjectName("SidebarHeader")
+        v.addWidget(rem_label)
+        self._rem_check = QCheckBox("Schedule reminder")
+        self._rem_check.toggled.connect(self._on_reminder_toggle)
+        v.addWidget(self._rem_check)
+        self._rem_when = QLineEdit()
+        self._rem_when.setPlaceholderText('e.g. "daily at 9am" or "in 30 minutes"')
+        self._rem_when.textChanged.connect(self._on_reminder_when_changed)
+        v.addWidget(self._rem_when)
+        self._rem_message = QLineEdit()
+        self._rem_message.setPlaceholderText("Notification message (defaults to title)")
+        v.addWidget(self._rem_message)
+        self._rem_ai_label = QLabel("AI prompt (optional)")
+        self._rem_ai_label.setObjectName("SidebarHint")
+        v.addWidget(self._rem_ai_label)
+        self._rem_ai_prompt = QTextEdit()
+        self._rem_ai_prompt.setObjectName("BodyEditor")
+        self._rem_ai_prompt.setAcceptRichText(False)
+        self._rem_ai_prompt.setFixedHeight(80)
+        self._rem_ai_prompt.setPlaceholderText(
+            "If set, fires Claude with this prompt + mindmap context "
+            "+ access to any linked directories, then emails the response."
+        )
+        v.addWidget(self._rem_ai_prompt)
+        self._rem_mac = QCheckBox("Run on Mac (always-on, fires when this device sleeps)")
+        self._rem_mac.setChecked(True)  # default to always-on delivery
+        v.addWidget(self._rem_mac)
+        rem_btn_row = QHBoxLayout()
+        rem_btn_row.setSpacing(6)
+        self._rem_save_btn = QPushButton("Save reminder")
+        self._rem_save_btn.setStyleSheet(
+            f"QPushButton {{ background:{SURFACE_2}; color:{TEXT}; border:1px solid {BORDER}; "
+            f"border-radius:6px; padding:4px 10px; }} "
+            f"QPushButton:hover {{ background:{SURFACE_3}; }} "
+            f"QPushButton:disabled {{ color:{TEXT_DIM}; }}"
+        )
+        self._rem_save_btn.clicked.connect(self._save_reminder)
+        self._rem_clear_btn = QPushButton("Clear")
+        self._rem_clear_btn.setStyleSheet(self._rem_save_btn.styleSheet())
+        self._rem_clear_btn.clicked.connect(self._clear_reminder)
+        rem_btn_row.addWidget(self._rem_save_btn)
+        rem_btn_row.addWidget(self._rem_clear_btn)
+        rem_btn_row.addStretch()
+        v.addLayout(rem_btn_row)
+        self._rem_hint = QLabel("")
+        self._rem_hint.setObjectName("SidebarHint")
+        self._rem_hint.setWordWrap(True)
+        v.addWidget(self._rem_hint)
+
         v.addSpacing(2)
 
         # Delete / Duplicate (danger zone at the bottom)
@@ -509,6 +611,9 @@ class LiveMainWindow(QMainWindow):
 
         self._sidebar_widgets_for_disable = [
             self._title_input, self._body_edit, self._bold, self._italic, dup_btn, del_btn,
+            self._folder_check, self._folder_path, self._folder_open_btn,
+            self._rem_check, self._rem_when, self._rem_message, self._rem_ai_prompt,
+            self._rem_mac, self._rem_save_btn, self._rem_clear_btn,
         ]
         self._set_sidebar_enabled(False)
         return side
@@ -619,6 +724,8 @@ class LiveMainWindow(QMainWindow):
         self._sidebar_hint.setText(f"Node #{n.id} · {deg} connection{'s' if deg != 1 else ''}")
         self._bold.blockSignals(True); self._bold.setChecked(n.bold); self._bold.blockSignals(False)
         self._italic.blockSignals(True); self._italic.setChecked(n.italic); self._italic.blockSignals(False)
+        self._sync_folder_inspector(n)
+        self._sync_reminder_inspector(n)
 
     def _wrap_focus_out(self, original, commit):
         def h(ev):
@@ -672,6 +779,324 @@ class LiveMainWindow(QMainWindow):
         self._push_attr_edit(nid, "body", new_body,
                              baseline=getattr(self, "_baseline_body", new_body),
                              label="Edit notes")
+
+    # ---- folder shortcut --------------------------------------------------
+    def _sync_folder_inspector(self, n: Node):
+        """Populate the Folder section from the node's ``dir_links`` dict."""
+        host = dirlink.current_device_key()
+        local_path = n.dir_links.get(host, "")
+        has_any = bool(n.dir_links)
+        self._folder_check.blockSignals(True)
+        self._folder_check.setChecked(has_any)
+        self._folder_check.blockSignals(False)
+        self._folder_path.blockSignals(True)
+        self._folder_path.setText(local_path)
+        self._folder_path.setEnabled(has_any)
+        self._folder_path.blockSignals(False)
+        self._update_folder_hint(n, host, local_path)
+
+    def _update_folder_hint(self, n: Node, host: str, local_path: str):
+        # Build hint reflecting (a) where the path resolves, and (b) which
+        # other devices already have an entry on this node.
+        others = [k for k in n.dir_links.keys() if k != host]
+        if local_path:
+            exists = dirlink.path_exists(local_path)
+            self._folder_open_btn.setEnabled(exists)
+            base = ("✓ Path exists on this device" if exists
+                    else "⚠ Path doesn't exist on this device yet")
+        else:
+            self._folder_open_btn.setEnabled(False)
+            base = (f"No path set for {host}." if n.dir_links
+                    else "Add a folder path. Each device keeps its own.")
+        if others:
+            base += f"  Also linked on: {', '.join(others)}."
+        self._folder_hint.setText(base)
+
+    def _on_folder_toggle(self, checked: bool):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None or nid not in self.scene.graph.nodes:
+            return
+        n = self.scene.graph.nodes[nid]
+        if not checked:
+            # Clear all device entries — uncheck means "no folder link".
+            if n.dir_links:
+                n.dir_links = {}
+                self._refresh_node_card(nid)
+            self._folder_path.blockSignals(True)
+            self._folder_path.setText("")
+            self._folder_path.setEnabled(False)
+            self._folder_path.blockSignals(False)
+        else:
+            self._folder_path.setEnabled(True)
+            self._folder_path.setFocus()
+        host = dirlink.current_device_key()
+        self._update_folder_hint(n, host, n.dir_links.get(host, ""))
+
+    def _commit_folder_path(self):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None or nid not in self.scene.graph.nodes:
+            return
+        n = self.scene.graph.nodes[nid]
+        host = dirlink.current_device_key()
+        new_path = self._folder_path.text().strip()
+        cur_path = n.dir_links.get(host, "")
+        if new_path == cur_path:
+            self._update_folder_hint(n, host, new_path)
+            return
+        new_links = dict(n.dir_links)
+        if new_path:
+            new_links[host] = new_path
+        else:
+            new_links.pop(host, None)
+        n.dir_links = new_links
+        self._refresh_node_card(nid)
+        self._update_folder_hint(n, host, new_path)
+        # Keep the toggle in sync: emptying the last device's entry
+        # un-checks the box.
+        self._folder_check.blockSignals(True)
+        self._folder_check.setChecked(bool(new_links))
+        self._folder_check.blockSignals(False)
+
+    def _open_folder_for_selected(self):
+        n = self._selected_single_node()
+        if n is None:
+            return
+        path = dirlink.resolve_path(n.dir_links)
+        if path and dirlink.path_exists(path):
+            dirlink.open_path(path)
+
+    def _refresh_node_card(self, nid: int):
+        item = self.scene.node_items.get(nid)
+        if item is not None:
+            item.refresh()
+
+    # ---- reminder ---------------------------------------------------------
+    def _sync_reminder_inspector(self, n: Node):
+        rem = n.reminder or {}
+        active = bool(rem)
+        self._rem_check.blockSignals(True)
+        self._rem_check.setChecked(active)
+        self._rem_check.blockSignals(False)
+        self._rem_when.blockSignals(True)
+        self._rem_when.setText(rem.get("spec", ""))
+        self._rem_when.setEnabled(active)
+        self._rem_when.blockSignals(False)
+        self._rem_message.blockSignals(True)
+        self._rem_message.setText(rem.get("message", ""))
+        self._rem_message.setEnabled(active)
+        self._rem_message.blockSignals(False)
+        self._rem_ai_prompt.blockSignals(True)
+        self._rem_ai_prompt.setPlainText(rem.get("claude_prompt", ""))
+        self._rem_ai_prompt.setEnabled(active)
+        self._rem_ai_prompt.blockSignals(False)
+        self._rem_mac.blockSignals(True)
+        # If a reminder already exists, restore its host. New nodes default
+        # to "mac" so the cron fires whether or not this Linux box is on.
+        self._rem_mac.setChecked(rem.get("host", "mac") == "mac")
+        self._rem_mac.setEnabled(active)
+        self._rem_mac.blockSignals(False)
+        self._rem_save_btn.setEnabled(active)
+        self._rem_clear_btn.setEnabled(bool(rem))
+        self._update_reminder_hint()
+
+    def _update_reminder_hint(self):
+        spec = self._rem_when.text().strip()
+        if not self._rem_check.isChecked():
+            self._rem_hint.setText("")
+            self._rem_save_btn.setEnabled(False)
+            return
+        tools = reminders.has_tools()
+        missing = [k for k, v in tools.items() if not v]
+        if missing:
+            self._rem_hint.setText(
+                f"⚠ This device is missing: {', '.join(missing)}. "
+                "Reminders won't fire here until those are installed."
+            )
+        if not spec:
+            if not missing:
+                self._rem_hint.setText("Type when it should fire.")
+            self._rem_save_btn.setEnabled(False)
+            return
+        parsed = reminders.parse_reminder(spec)
+        if parsed is None:
+            self._rem_hint.setText("⚠ Couldn't parse — try \"daily at 9am\" or \"in 30 minutes\".")
+            self._rem_save_btn.setEnabled(False)
+            return
+        prefix = "" if not missing else self._rem_hint.text() + "  "
+        self._rem_hint.setText(prefix + f"→ {parsed.summary}")
+        self._rem_save_btn.setEnabled(not missing)
+
+    def _on_reminder_when_changed(self, _text: str):
+        self._update_reminder_hint()
+
+    def _on_reminder_toggle(self, checked: bool):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None or nid not in self.scene.graph.nodes:
+            return
+        n = self.scene.graph.nodes[nid]
+        if not checked and n.reminder:
+            self._clear_reminder()
+            return
+        self._rem_when.setEnabled(checked)
+        self._rem_message.setEnabled(checked)
+        self._rem_save_btn.setEnabled(checked and bool(self._rem_when.text().strip()))
+        if checked:
+            self._rem_when.setFocus()
+        self._update_reminder_hint()
+
+    def _save_reminder(self):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None or nid not in self.scene.graph.nodes:
+            return
+        n = self.scene.graph.nodes[nid]
+        spec = self._rem_when.text().strip()
+        message = self._rem_message.text().strip() or n.text or "Reminder"
+        ai_prompt = self._rem_ai_prompt.toPlainText().strip()
+        run_on_mac = self._rem_mac.isChecked()
+        parsed = reminders.parse_reminder(spec)
+        if parsed is None:
+            self._rem_hint.setText("⚠ Couldn't parse the schedule.")
+            return
+        # AI mode requires a saved file: cron needs an on-disk JSON to
+        # read the latest node + context at fire time.
+        if (ai_prompt or run_on_mac) and self.current_path is None:
+            self._rem_hint.setText(
+                "⚠ Save the mindmap to a file first — "
+                "AI / Mac-delegated reminders need an on-disk JSON."
+            )
+            return
+        ai_json_path = str(self.current_path) if ai_prompt else None
+
+        try:
+            if run_on_mac:
+                # Always re-save before delegating, so the Mac sees the
+                # latest node text / dir_links / connections at fire time.
+                self.save_file()
+                ok, push_msg = self._push_json_to_mac()
+                if not ok:
+                    self._rem_hint.setText(f"✗ Mac sync: {push_msg}")
+                    return
+                ok, boot_msg = macdg.bootstrap()
+                if not ok:
+                    self._rem_hint.setText(f"✗ Mac setup: {boot_msg}")
+                    return
+                # Clear any prior local install so we don't double-fire.
+                reminders.remove(nid)
+                ai_basename = (Path(self.current_path).name
+                               if ai_prompt else None)
+                macdg.install(nid, parsed, message,
+                              ai_json_basename=ai_basename)
+                host = "mac"
+            else:
+                # Clear any prior mac install on best-effort basis (don't
+                # fail the save if mac is unreachable).
+                try:
+                    if macdg.is_reachable():
+                        macdg.remove(nid)
+                except Exception:
+                    pass
+                reminders.install(nid, parsed, message,
+                                  ai_json_path=ai_json_path)
+                host = "local"
+        except Exception as exc:
+            self._rem_hint.setText(f"✗ Failed: {exc}")
+            return
+
+        n.reminder = {"spec": spec, "message": message,
+                      "kind": parsed.kind, "schedule": parsed.schedule,
+                      "host": host}
+        if ai_prompt:
+            n.reminder["claude_prompt"] = ai_prompt
+        self._refresh_node_card(nid)
+        location = "Mac (always-on)" if host == "mac" else "this device"
+        suffix = "  (AI)" if ai_prompt else ""
+        self._rem_hint.setText(
+            f"✓ Installed on {location} — {parsed.summary}{suffix}"
+        )
+        self._rem_clear_btn.setEnabled(True)
+
+    def _open_mac_log(self):
+        """Spawn a terminal that tails the Mac's reminder log over SSH.
+        Read-only, Ctrl+C closes it. Uses Ptyxis (the user's preferred
+        terminal on Fedora) when available, falling back to xterm or
+        x-terminal-emulator."""
+        import shutil, subprocess
+        cmd = ("ssh -t -o BatchMode=yes -o ConnectTimeout=5 mac "
+               "'tail -F ~/.cache/pymindmap-notify.log 2>/dev/null || "
+               "echo \"(no log yet — fire a reminder first)\"; sleep 3'")
+        for term in ("ptyxis", "gnome-terminal", "xterm"):
+            if shutil.which(term):
+                if term == "ptyxis":
+                    subprocess.Popen([term, "--", "bash", "-c", cmd])
+                elif term == "gnome-terminal":
+                    subprocess.Popen([term, "--", "bash", "-c", cmd])
+                else:
+                    subprocess.Popen([term, "-e", "bash", "-c", cmd])
+                return
+        self._status_label.setText("(no terminal emulator found)")
+
+    def _push_json_to_mac(self) -> tuple[bool, str]:
+        """Rsync the current mindmap JSON to the Mac's rendezvous folder.
+        The launcher already does this on app close; we replicate it
+        here so a freshly-saved reminder can be installed immediately
+        without forcing the user to quit first."""
+        if self.current_path is None:
+            return False, "no file"
+        import subprocess
+        cmd = ["rsync", "-t", "--update",
+               "-e", "ssh -o BatchMode=yes -o ConnectTimeout=8",
+               str(self.current_path),
+               f"mac:Sync/pymindmap/{self.current_path.name}"]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return False, str(exc)
+        if proc.returncode != 0:
+            return False, (proc.stderr or proc.stdout).strip()[:200]
+        return True, "ok"
+
+    def _clear_reminder(self):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None or nid not in self.scene.graph.nodes:
+            return
+        n = self.scene.graph.nodes[nid]
+        # Try both local and mac so an old delegation is cleaned up
+        # regardless of where it was installed. Mac removal is best-
+        # effort since it might be asleep.
+        try:
+            reminders.remove(nid)
+        except Exception as exc:
+            self._rem_hint.setText(f"✗ Failed to remove local: {exc}")
+            return
+        try:
+            if macdg.is_reachable():
+                macdg.remove(nid)
+        except Exception:
+            pass
+        n.reminder = None
+        self._refresh_node_card(nid)
+        self._rem_check.blockSignals(True)
+        self._rem_check.setChecked(False)
+        self._rem_check.blockSignals(False)
+        self._rem_when.blockSignals(True)
+        self._rem_when.setText("")
+        self._rem_when.setEnabled(False)
+        self._rem_when.blockSignals(False)
+        self._rem_message.blockSignals(True)
+        self._rem_message.setText("")
+        self._rem_message.setEnabled(False)
+        self._rem_message.blockSignals(False)
+        self._rem_ai_prompt.blockSignals(True)
+        self._rem_ai_prompt.setPlainText("")
+        self._rem_ai_prompt.setEnabled(False)
+        self._rem_ai_prompt.blockSignals(False)
+        self._rem_mac.blockSignals(True)
+        self._rem_mac.setChecked(True)  # default for the next reminder
+        self._rem_mac.setEnabled(False)
+        self._rem_mac.blockSignals(False)
+        self._rem_save_btn.setEnabled(False)
+        self._rem_clear_btn.setEnabled(False)
+        self._rem_hint.setText("Reminder removed.")
 
     def _push_attr_edit(self, nid: int, attr: str, new_val, *, baseline, label: str):
         """Commit a live-edited attr as a reversible EditNodeCmd.

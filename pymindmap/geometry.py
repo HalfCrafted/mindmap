@@ -44,20 +44,21 @@ def anchor_point(node: Node, anchor: EdgeAnchor | None, toward: Tuple[float, flo
         # No preferred direction — default to right edge midpoint.
         return right, cy, (1.0, 0.0)
 
-    # Intersection parameter t where the ray from (cx, cy) in direction
-    # (dx, dy) crosses each side of the bounding box. The side with the
-    # smallest positive t is the exit side.
+    # Ray-exit test: which side of the bounding box does a ray from the
+    # node centre toward the target cross *first*? This naturally
+    # accounts for node aspect — wide pills exit through top/bottom for
+    # most off-horizontal angles, narrow pills the opposite. Crucially,
+    # it picks the right answer when bounding boxes *overlap* on one
+    # axis (a common layout outcome for wide siblings stacked
+    # vertically): the geometrically-shorter axis becomes the exit and
+    # the resulting tangent points toward the other node, not away from
+    # it through an irrelevant face.
+    inset = 0.18
     inf = float("inf")
     t_right = (w * 0.5) / dx if dx > 0 else inf
     t_left = (-w * 0.5) / dx if dx < 0 else inf
     t_bottom = (h * 0.5) / dy if dy > 0 else inf
     t_top = (-h * 0.5) / dy if dy < 0 else inf
-
-    # Keep anchor off the corner arc by at most a small inset measured in
-    # the edge's long dimension. 20% on each end ≈ straight edge for the
-    # pill geometry the live variant uses.
-    inset = 0.18
-
     if t_right <= t_bottom and t_right <= t_top and t_right <= t_left:
         y = cy + t_right * dy
         y = min(bottom - inset * h, max(top + inset * h, y))
@@ -73,6 +74,12 @@ def anchor_point(node: Node, anchor: EdgeAnchor | None, toward: Tuple[float, flo
     x = cx + t_top * dx
     x = min(right - inset * w, max(left + inset * w, x))
     return x, top, (0.0, -1.0)
+
+
+def _node_contains(node: Node, pt: Tuple[float, float]) -> bool:
+    """Whether ``pt`` is inside ``node``'s axis-aligned bounding box."""
+    return (node.x <= pt[0] <= node.x + node.width
+            and node.y <= pt[1] <= node.y + node.height)
 
 
 def route_bezier(conn: Connection, nodes: dict[int, Node]) -> List[Tuple[float, float]]:
@@ -121,6 +128,16 @@ def route_bezier(conn: Connection, nodes: dict[int, Node]) -> List[Tuple[float, 
     source = (from_node.center() if not conn.waypoints
               else (conn.waypoints[-1].x, conn.waypoints[-1].y))
     tx, ty, ttan = anchor_point(to_node, conn.to_anchor, source)
+
+    # Degenerate case: nodes overlap so heavily that one anchor sits
+    # *inside* the other's bounding box. No bezier can stay outside both
+    # nodes — any control-point offset would just dive deeper into a
+    # node. Fall back to a straight line so the connection at least
+    # renders as something visually identifiable.
+    if (not conn.waypoints
+            and (_node_contains(to_node, (fx, fy))
+                 or _node_contains(from_node, (tx, ty)))):
+        return [(fx, fy), (fx, fy), (tx, ty), (tx, ty)]
     # c2 should sit on the "coming from" side of p3 — i.e., *outside* the
     # to-node, along the outward normal. The cubic tangent at p3 is
     # (p3 - c2), so offsetting c2 by +ttan*h makes the curve enter p3
@@ -138,10 +155,36 @@ def route_bezier(conn: Connection, nodes: dict[int, Node]) -> List[Tuple[float, 
         p3 = (b[0], b[1])
         dist = ((p3[0] - p0[0]) ** 2 + (p3[1] - p0[1]) ** 2) ** 0.5
         # Handle length scales with distance, capped to avoid wild loops.
-        h = max(30.0, min(180.0, dist * 0.5))
-        # c1 uses a's out-tangent; c2 uses b's in-tangent.
-        c1 = (p0[0] + a[2] * h, p0[1] + a[3] * h)
-        c2 = (p3[0] + b[4] * h, p3[1] + b[5] * h)
+        # When endpoint tangents point *away* from each other (i.e. the
+        # curve would have to turn around to reach p3), we shorten the
+        # handles further: long handles in opposite directions cause
+        # severe S-curves whose midpoint tangent points the wrong way
+        # for the arrowhead to land on. Detected by dotting the from-
+        # tangent with the direction toward p3.
+        line_dx = p3[0] - p0[0]
+        line_dy = p3[1] - p0[1]
+        line_mag = (line_dx * line_dx + line_dy * line_dy) ** 0.5 or 1.0
+        ux, uy = line_dx / line_mag, line_dy / line_mag
+        # +1 = tangent points at p3, -1 = points away.
+        a_align = a[2] * ux + a[3] * uy
+        b_align = -(b[4] * ux + b[5] * uy)
+        # Shrink handles when either endpoint disagrees with the line
+        # direction. align in [-1, 1]; map to [0.15, 1.0]. Aggressive
+        # shrink at the disagreeing end keeps the curve from looping
+        # back through the node it's meant to be leaving.
+        a_scale = 0.15 + 0.85 * max(0.0, (a_align + 1.0) * 0.5)
+        b_scale = 0.15 + 0.85 * max(0.0, (b_align + 1.0) * 0.5)
+        # Also shrink the absolute handle length when the curve is short
+        # — short curves with thick lines look most like arrowheads
+        # caught in a corkscrew when handles approach the node radius.
+        max_h = min(180.0, dist * 0.5)
+        h_a = max_h * a_scale
+        h_b = max_h * b_scale
+        # c1 uses a's out-tangent; c2 uses b's in-tangent. Per-endpoint
+        # handle lengths so an aligned end keeps its smooth curve while
+        # an opposing end is reined in.
+        c1 = (p0[0] + a[2] * h_a, p0[1] + a[3] * h_a)
+        c2 = (p3[0] + b[4] * h_b, p3[1] + b[5] * h_b)
         if i == 0:
             pts.append(p0)
         pts.extend([c1, c2, p3])
