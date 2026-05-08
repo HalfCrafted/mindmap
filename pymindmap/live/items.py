@@ -254,16 +254,18 @@ class LiveNodeItem(QGraphicsObject):
 
         title_h = title_fm.lineSpacing() * len(title_lines)
 
-        # Body lines (if any) — left-aligned inside pad_x on both sides.
+        # Description subtext (if any) — left-aligned inside pad_x on both sides.
+        # The description is the short blurb the user wants visible on the card;
+        # the long-form ``body`` lives in the inspector only.
         body_lines: list[str] = []
         body_h = 0.0
         body_fm = None
         body_left = pad_x
-        if self.node.body.strip():
+        if self.node.description.strip():
             body_font = self._body_font()
             body_fm = QFontMetricsF(body_font)
             body_content_w = target_w - 2 * pad_x
-            body_lines = _wrapped_lines(self.node.body, body_content_w, body_fm,
+            body_lines = _wrapped_lines(self.node.description, body_content_w, body_fm,
                                         max_lines=BODY_MAX_LINES)
             body_h = body_fm.lineSpacing() * len(body_lines) + max(4.0, pad_y * 0.4)
 

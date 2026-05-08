@@ -16,6 +16,7 @@ class Theme:
     node_border: str = "#2a2a32"
     node_border_selected: str = "#6366f1"
     node_text: str = "#e6e6ea"
+    node_subtext: str = "#9ca3af"
     node_header_default: str = "#6366f1"
     node_radius: int = 8
     node_header_height: int = 6

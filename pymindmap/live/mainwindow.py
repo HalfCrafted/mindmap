@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QSettings, QSize, Qt
+from PyQt5.QtCore import QEvent, QSettings, QSize, Qt
 from PyQt5.QtGui import QColor, QFont, QKeySequence
 from PyQt5.QtWidgets import (
     QAction,
@@ -239,12 +239,20 @@ class LiveMainWindow(QMainWindow):
         vbox.addWidget(self._build_top_bar())
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(self.view)
-        self.splitter.addWidget(self._build_sidebar())
+        self._sidebar_widget = self._build_sidebar()
+        self.splitter.addWidget(self._sidebar_widget)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([1000, 400])
+        # Default split sizes — restored when the sidebar is re-revealed.
+        self._sidebar_default_sizes = [1000, 400]
+        self.splitter.setSizes(self._sidebar_default_sizes)
         self.splitter.setHandleWidth(1)
         vbox.addWidget(self.splitter, 1)
+
+        # Hide the sidebar by default and create a small "notch" on the
+        # right edge of the canvas that reveals it when clicked.
+        self._sidebar_widget.hide()
+        self._build_sidebar_notch()
 
         self._build_statusbar()
         self._build_shortcuts()
@@ -406,10 +414,25 @@ class LiveMainWindow(QMainWindow):
         v.setContentsMargins(18, 16, 18, 14)
         v.setSpacing(10)
 
-        # Section header: "NODE"
+        # Section header: "NODE" + a close-sidebar button on the right.
+        header_row = QHBoxLayout()
         header = QLabel("NOTE")
         header.setObjectName("SidebarHeader")
-        v.addWidget(header)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        close_btn = QPushButton("×")
+        close_btn.setToolTip("Hide sidebar (click the notch on the canvas to bring it back)")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setFocusPolicy(Qt.NoFocus)
+        close_btn.setFixedSize(22, 22)
+        close_btn.setStyleSheet(
+            f"QPushButton {{ background:{SURFACE_2}; color:{TEXT_DIM}; "
+            f"border:1px solid {BORDER}; border-radius:11px; font-weight:600; }} "
+            f"QPushButton:hover {{ color:{TEXT}; border-color:{ACCENT}; }}"
+        )
+        close_btn.clicked.connect(self.hide_sidebar)
+        header_row.addWidget(close_btn)
+        v.addLayout(header_row)
 
         # Title input (big)
         self._title_input = QLineEdit()
@@ -424,17 +447,47 @@ class LiveMainWindow(QMainWindow):
         self._sidebar_hint.setObjectName("SidebarHint")
         v.addWidget(self._sidebar_hint)
 
-        # Body editor — prominent, takes most of the sidebar
+        # Description — short subtext shown directly on the card.
         v.addSpacing(4)
-        body_label = QLabel("NOTES")
-        body_label.setObjectName("SidebarHeader")
-        v.addWidget(body_label)
+        desc_label = QLabel("DESCRIPTION")
+        desc_label.setObjectName("SidebarHeader")
+        v.addWidget(desc_label)
+
+        self._desc_edit = QTextEdit()
+        self._desc_edit.setObjectName("BodyEditor")
+        self._desc_edit.setAcceptRichText(False)
+        self._desc_edit.setPlaceholderText("Short blurb shown on the card under the title…")
+        self._desc_edit.setMaximumHeight(110)
+        self._desc_edit.textChanged.connect(self._schedule_live_description)
+        self._desc_edit.focusOutEvent = self._wrap_focus_out(
+            self._desc_edit.focusOutEvent, self._commit_description
+        )
+        v.addWidget(self._desc_edit)
+
+        # Notes — long-form body, inspector-only. Plain text, with the option
+        # to import a Markdown file as the starting content.
+        v.addSpacing(6)
+        notes_header_row = QHBoxLayout()
+        notes_label = QLabel("NOTES")
+        notes_label.setObjectName("SidebarHeader")
+        notes_header_row.addWidget(notes_label)
+        notes_header_row.addStretch()
+        self._import_md_btn = QPushButton("Import .md")
+        self._import_md_btn.setToolTip("Replace notes with the contents of a Markdown file")
+        self._import_md_btn.setStyleSheet(
+            f"QPushButton {{ background:{SURFACE_2}; color:{TEXT}; border:1px solid {BORDER}; "
+            f"border-radius:6px; padding:2px 8px; }}"
+            f"QPushButton:hover {{ border-color:{ACCENT}; }}"
+        )
+        self._import_md_btn.clicked.connect(self._import_notes_markdown)
+        notes_header_row.addWidget(self._import_md_btn)
+        v.addLayout(notes_header_row)
 
         self._body_edit = QTextEdit()
         self._body_edit.setObjectName("BodyEditor")
         self._body_edit.setAcceptRichText(False)
-        self._body_edit.setPlaceholderText("Write expanded thoughts here. "
-                                           "Previews show on the card.")
+        self._body_edit.setPlaceholderText("Long-form notes (plain text or imported Markdown). "
+                                           "These do NOT show on the card.")
         self._body_edit.textChanged.connect(self._schedule_live_body)
         self._body_edit.focusOutEvent = self._wrap_focus_out(
             self._body_edit.focusOutEvent, self._commit_body
@@ -610,13 +663,128 @@ class LiveMainWindow(QMainWindow):
         v.addLayout(row)
 
         self._sidebar_widgets_for_disable = [
-            self._title_input, self._body_edit, self._bold, self._italic, dup_btn, del_btn,
+            self._title_input, self._desc_edit, self._body_edit, self._import_md_btn,
+            self._bold, self._italic, dup_btn, del_btn,
             self._folder_check, self._folder_path, self._folder_open_btn,
             self._rem_check, self._rem_when, self._rem_message, self._rem_ai_prompt,
             self._rem_mac, self._rem_save_btn, self._rem_clear_btn,
         ]
         self._set_sidebar_enabled(False)
         return side
+
+    # ---- sidebar reveal notch ---------------------------------------------
+    def _build_sidebar_notch(self):
+        """Small handle clipped to the right edge of the canvas.
+
+        Parented to the view itself so it stacks above the QGraphicsScene
+        contents — buttons reparented to the QMainWindow ended up behind
+        the central widget and never received clicks.
+        """
+        self._sidebar_notch = QPushButton("‹", self.view)
+        self._sidebar_notch.setToolTip("Show inspector sidebar")
+        self._sidebar_notch.setCursor(Qt.PointingHandCursor)
+        self._sidebar_notch.setFocusPolicy(Qt.NoFocus)
+        self._sidebar_notch.setFixedSize(16, 72)
+        self._sidebar_notch.setStyleSheet(
+            f"QPushButton {{"
+            f" background:{SURFACE_2}; color:{TEXT_DIM};"
+            f" border:1px solid {BORDER}; border-right:none;"
+            f" border-top-left-radius:6px; border-bottom-left-radius:6px;"
+            f" font-weight:600;"
+            f"}}"
+            f"QPushButton:hover {{ background:{SURFACE_3}; color:{TEXT}; }}"
+        )
+        self._sidebar_notch.clicked.connect(self._toggle_sidebar)
+        # Install event filters on the view and the sidebar pane so we
+        # see canvas resizes AND sidebar show/hide/resize, which together
+        # cover every way the sidebar can disappear.
+        self.view.installEventFilter(self)
+        self._sidebar_widget.installEventFilter(self)
+        # Splitter drag can also collapse the sidebar (width → 0 without
+        # hide()), so listen for splitterMoved to keep the notch in sync.
+        self.splitter.splitterMoved.connect(lambda *_: self._update_notch_visibility())
+        self._sidebar_notch.show()
+        self._sidebar_notch.raise_()
+        self._reposition_sidebar_notch()
+
+    def _sidebar_is_visible(self) -> bool:
+        if not hasattr(self, "_sidebar_widget"):
+            return False
+        if not self._sidebar_widget.isVisible():
+            return False
+        sizes = self.splitter.sizes()
+        # Splitter index 1 is the sidebar pane.
+        return len(sizes) >= 2 and sizes[1] > 4
+
+    def _update_notch_visibility(self):
+        """Notch is always visible — it's a toggle, not a reveal-only handle.
+
+        The chevron direction flips so the user can tell at a glance which
+        way clicking will move the sidebar: ``‹`` = pull sidebar in, ``›``
+        = push it back out.
+        """
+        notch = getattr(self, "_sidebar_notch", None)
+        if notch is None:
+            return
+        if self._sidebar_is_visible():
+            notch.setText("›")
+            notch.setToolTip("Hide inspector sidebar")
+        else:
+            notch.setText("‹")
+            notch.setToolTip("Show inspector sidebar")
+        notch.show()
+        notch.raise_()
+        self._reposition_sidebar_notch()
+
+    def _toggle_sidebar(self):
+        if self._sidebar_is_visible():
+            self.hide_sidebar()
+        else:
+            self._reveal_sidebar()
+
+    def _reposition_sidebar_notch(self):
+        notch = getattr(self, "_sidebar_notch", None)
+        if notch is None:
+            return
+        view = getattr(self, "view", None)
+        if view is None:
+            return
+        x = max(0, view.width() - notch.width())
+        y = max(0, (view.height() - notch.height()) // 2)
+        notch.move(x, y)
+        notch.raise_()
+
+    def _reveal_sidebar(self):
+        if not hasattr(self, "_sidebar_widget"):
+            return
+        # Show the widget (in case it was hide()-ed) AND give it a non-zero
+        # split size (in case the user dragged the handle to collapse it).
+        if not self._sidebar_widget.isVisible():
+            self._sidebar_widget.show()
+        self.splitter.setSizes(getattr(self, "_sidebar_default_sizes", [1000, 400]))
+        self._update_notch_visibility()
+
+    def hide_sidebar(self):
+        if hasattr(self, "_sidebar_widget"):
+            self._sidebar_widget.hide()
+        self._update_notch_visibility()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._update_notch_visibility()
+
+    def eventFilter(self, obj, event):
+        et = event.type()
+        # Resize of the canvas → reposition. Show/Hide of the sidebar pane
+        # → keep the notch in sync (covers programmatic and user-driven
+        # collapses that don't fire splitterMoved).
+        if obj is getattr(self, "view", None) and et == QEvent.Resize:
+            self._update_notch_visibility()
+        elif obj is getattr(self, "_sidebar_widget", None) and et in (
+            QEvent.Show, QEvent.Hide, QEvent.Resize,
+        ):
+            self._update_notch_visibility()
+        return super().eventFilter(obj, event)
 
     # ---- status bar -------------------------------------------------------
     def _build_statusbar(self):
@@ -687,6 +855,7 @@ class LiveMainWindow(QMainWindow):
     def _sync_inspector(self):
         # Commit pending edits on the previously-selected node, then swap target.
         self._commit_title()
+        self._commit_description()
         self._commit_body()
 
         n = self._selected_single_node()
@@ -696,11 +865,15 @@ class LiveMainWindow(QMainWindow):
             self._title_input.setText("")
             self._title_input.setPlaceholderText("Select or double-click a note")
             self._title_input.blockSignals(False)
+            self._desc_edit.blockSignals(True)
+            self._desc_edit.setPlainText("")
+            self._desc_edit.blockSignals(False)
             self._body_edit.blockSignals(True)
             self._body_edit.setPlainText("")
             self._body_edit.blockSignals(False)
             self._edit_target_id: Optional[int] = None
             self._baseline_text = ""
+            self._baseline_description = ""
             self._baseline_body = ""
             self._sidebar_hint.setText("")
             self._bold.blockSignals(True); self._bold.setChecked(False); self._bold.blockSignals(False)
@@ -712,11 +885,15 @@ class LiveMainWindow(QMainWindow):
         # Baseline = values at the moment this node was selected. Used on
         # commit to detect real edits and to build a reversible EditNodeCmd.
         self._baseline_text = n.text
+        self._baseline_description = n.description
         self._baseline_body = n.body
         self._title_input.blockSignals(True)
         self._title_input.setText(n.text)
         self._title_input.setPlaceholderText("Title…")
         self._title_input.blockSignals(False)
+        self._desc_edit.blockSignals(True)
+        self._desc_edit.setPlainText(n.description)
+        self._desc_edit.blockSignals(False)
         self._body_edit.blockSignals(True)
         self._body_edit.setPlainText(n.body)
         self._body_edit.blockSignals(False)
@@ -779,6 +956,50 @@ class LiveMainWindow(QMainWindow):
         self._push_attr_edit(nid, "body", new_body,
                              baseline=getattr(self, "_baseline_body", new_body),
                              label="Edit notes")
+
+    def _schedule_live_description(self):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None:
+            return
+        n = self.scene.graph.nodes.get(nid)
+        if n is None:
+            return
+        n.description = self._desc_edit.toPlainText()
+        item = self.scene.node_items.get(nid)
+        if item is not None:
+            item.refresh()
+
+    def _commit_description(self):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None:
+            return
+        if nid not in self.scene.graph.nodes:
+            return
+        new_desc = self._desc_edit.toPlainText()
+        self._push_attr_edit(nid, "description", new_desc,
+                             baseline=getattr(self, "_baseline_description", new_desc),
+                             label="Edit description")
+
+    def _import_notes_markdown(self):
+        nid = getattr(self, "_edit_target_id", None)
+        if nid is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Markdown into notes", "", "Markdown (*.md *.markdown);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text()
+        except Exception as e:
+            QMessageBox.critical(self, "Import failed", str(e))
+            return
+        self._body_edit.blockSignals(True)
+        self._body_edit.setPlainText(text)
+        self._body_edit.blockSignals(False)
+        # Push through the schedule/commit pipeline so the change is undoable.
+        self._schedule_live_body()
+        self._commit_body()
 
     # ---- folder shortcut --------------------------------------------------
     def _sync_folder_inspector(self, n: Node):
@@ -1115,8 +1336,10 @@ class LiveMainWindow(QMainWindow):
             self._baseline_text = new_val
         elif attr == "body":
             self._baseline_body = new_val
+        elif attr == "description":
+            self._baseline_description = new_val
         # Size-affecting edits → request a layout pass.
-        if attr in ("text", "body"):
+        if attr in ("text", "body", "description"):
             self.scene.schedule_layout()
 
     def _set_attrs(self, attrs: dict):
@@ -1137,14 +1360,13 @@ class LiveMainWindow(QMainWindow):
         item = self.scene.node_items.get(nid)
         if item is None:
             return
+        self._reveal_sidebar()
         self.scene.clearSelection()
         item.setSelected(True)
-        # Focus the body editor (or title if blank).
-        if not item.node.text or item.node.text.strip().lower() in ("", "new note"):
-            self._title_input.setFocus()
-            self._title_input.selectAll()
-        else:
-            self._body_edit.setFocus()
+        # Always focus the TITLE input on double-click — the user wants to
+        # rename the node, not edit its description or notes.
+        self._title_input.setFocus()
+        self._title_input.selectAll()
 
     # ---- focus mode -------------------------------------------------------
     def _on_selection_for_focus(self):
@@ -1196,7 +1418,8 @@ class LiveMainWindow(QMainWindow):
                 self.scene.clear_emphasis()
             return
         matches = [nid for nid, n in self.scene.graph.nodes.items()
-                   if text in n.text.lower() or text in n.body.lower()]
+                   if text in n.text.lower() or text in n.body.lower()
+                      or text in n.description.lower()]
         self._search_matches = matches
         self._search_match_index = 0
         if not matches:
@@ -1256,7 +1479,8 @@ class LiveMainWindow(QMainWindow):
             src = it.node
             dup = Node(
                 id=self.scene.graph.allocate_id(),
-                x=src.x + 30, y=src.y + 30, text=src.text, body=src.body,
+                x=src.x + 30, y=src.y + 30, text=src.text,
+                description=src.description, body=src.body,
                 width=src.width, height=src.height, color=src.color,
                 font_size=src.font_size, align=src.align,
                 bold=src.bold, italic=src.italic,
@@ -1323,6 +1547,7 @@ class LiveMainWindow(QMainWindow):
 
     def save_file(self):
         self._commit_title()
+        self._commit_description()
         self._commit_body()
         if self.current_path is None:
             self.save_file_as()
@@ -1371,6 +1596,7 @@ class LiveMainWindow(QMainWindow):
 
     def closeEvent(self, e):
         self._commit_title()
+        self._commit_description()
         self._commit_body()
         if self._confirm_discard():
             e.accept()

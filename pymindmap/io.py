@@ -44,6 +44,7 @@ def _node_from_dict(d: dict) -> Node:
         align=str(d.get("align", "center")),
         bold=bool(d.get("bold", False)),
         italic=bool(d.get("italic", False)),
+        description=str(d.get("description", "")),
         body=str(d.get("body", "")),
         collapsed=bool(d.get("collapsed", False)),
         reminder=reminder,
@@ -129,6 +130,8 @@ def _node_to_dict(n: Node) -> dict:
         "w": round(n.width),
         "h": round(n.height),
     }
+    if n.description:
+        d["description"] = n.description
     if n.body:
         d["body"] = n.body
     if n.collapsed:

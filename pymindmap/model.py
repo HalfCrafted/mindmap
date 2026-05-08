@@ -21,7 +21,8 @@ class Node:
     align: str = "center"        # left | center | right
     bold: bool = False
     italic: bool = False
-    body: str = ""                         # long-form notes, shown in inspector
+    description: str = ""                  # short subtext, shown on the node
+    body: str = ""                         # long-form notes, shown in inspector only
     collapsed: bool = False                # live variant: hide BFS descendants
 
     # Optional integrations. ``reminder`` schedules a notify-send (or, later,

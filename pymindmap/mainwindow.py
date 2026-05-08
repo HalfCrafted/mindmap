@@ -216,14 +216,37 @@ class MainWindow(QMainWindow):
         pal_row.addStretch()
         layout.addLayout(pal_row)
 
-        # Body (long-form note) ------------------------------------------------
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color:#2a2a32;")
-        layout.addWidget(sep)
-        layout.addWidget(QLabel("Notes"))
+        # Description (short subtext shown on the node) -----------------------
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.HLine)
+        sep1.setStyleSheet("color:#2a2a32;")
+        layout.addWidget(sep1)
+        layout.addWidget(QLabel("Description"))
+        self._desc_edit = QTextEdit()
+        self._desc_edit.setPlaceholderText("Short subtext shown under the title on the node…")
+        self._desc_edit.setAcceptRichText(False)
+        self._desc_edit.setMaximumHeight(80)
+        self._desc_edit_node_id: Optional[int] = None
+        self._desc_edit.focusOutEvent = self._wrap_focus_out(
+            self._desc_edit.focusOutEvent, self._commit_description
+        )
+        layout.addWidget(self._desc_edit)
+
+        # Body / Notes (long-form, inspector-only) ----------------------------
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet("color:#2a2a32;")
+        layout.addWidget(sep2)
+        notes_header = QHBoxLayout()
+        notes_header.addWidget(QLabel("Notes"))
+        notes_header.addStretch()
+        self._import_md_btn = QPushButton("Import .md…")
+        self._import_md_btn.setToolTip("Replace notes with the contents of a Markdown file")
+        self._import_md_btn.clicked.connect(self._import_notes_markdown)
+        notes_header.addWidget(self._import_md_btn)
+        layout.addLayout(notes_header)
         self._body_edit = QTextEdit()
-        self._body_edit.setPlaceholderText("Long-form notes for this node…")
+        self._body_edit.setPlaceholderText("Long-form notes for this node (plain text or imported Markdown)…")
         self._body_edit.setAcceptRichText(False)
         self._body_edit.setMinimumHeight(140)
         self._body_edit_node_id: Optional[int] = None
@@ -236,8 +259,65 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
         dock.setMinimumWidth(260)
 
+        self._inspector_dock = dock
+        # Re-show the reveal notch when the dock is closed via its 'X'.
+        dock.visibilityChanged.connect(self._on_inspector_visibility_changed)
+
         # disable initially
         self._set_inspector_enabled(False)
+
+        # Hidden by default — user reveals via the notch.
+        dock.hide()
+        self._build_inspector_notch()
+
+    def _build_inspector_notch(self):
+        """Small handle on the right edge that re-reveals a hidden inspector."""
+        self._notch = QPushButton("‹", self)
+        self._notch.setToolTip("Show inspector")
+        self._notch.setCursor(Qt.PointingHandCursor)
+        self._notch.setFocusPolicy(Qt.NoFocus)
+        self._notch.setFixedSize(14, 64)
+        self._notch.setStyleSheet(
+            "QPushButton {"
+            " background:#1a1a1e; color:#9ca3af;"
+            " border:1px solid #2a2a32; border-right:none;"
+            " border-top-left-radius:6px; border-bottom-left-radius:6px;"
+            " font-weight:600;"
+            "}"
+            "QPushButton:hover { background:#22222a; color:#e6e6ea; }"
+        )
+        self._notch.clicked.connect(self._show_inspector)
+        self._notch.raise_()
+        self._notch.show()
+        self._reposition_notch()
+
+    def _reposition_notch(self):
+        if not hasattr(self, "_notch"):
+            return
+        w = self.centralWidget()
+        if w is None:
+            return
+        # Anchor to the right edge of the central widget (canvas), vertically centered.
+        x = w.x() + w.width() - self._notch.width()
+        y = w.y() + (w.height() - self._notch.height()) // 2
+        self._notch.move(x, y)
+        self._notch.raise_()
+
+    def _show_inspector(self):
+        if hasattr(self, "_inspector_dock"):
+            self._inspector_dock.show()
+            self._inspector_dock.raise_()
+
+    def _on_inspector_visibility_changed(self, visible: bool):
+        if not hasattr(self, "_notch"):
+            return
+        self._notch.setVisible(not visible)
+        if not visible:
+            self._reposition_notch()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reposition_notch()
 
     def _build_statusbar(self):
         bar = self.statusBar()
@@ -261,7 +341,8 @@ class MainWindow(QMainWindow):
 
     # ---- inspector sync ---------------------------------------------------
     def _set_inspector_enabled(self, enabled: bool):
-        for w in (self._font_slider, self._align_combo, self._bold, self._italic, self._body_edit):
+        for w in (self._font_slider, self._align_combo, self._bold, self._italic,
+                  self._desc_edit, self._body_edit, self._import_md_btn):
             w.setEnabled(enabled)
 
     def _selected_single_node(self) -> Optional[Node]:
@@ -271,12 +352,17 @@ class MainWindow(QMainWindow):
         return None
 
     def _sync_inspector(self):
-        # Commit any pending body edit for the previously-selected node first.
+        # Commit any pending edits for the previously-selected node first.
+        self._commit_description()
         self._commit_body()
         n = self._selected_single_node()
         if n is None:
             self._insp_title.setText("Select a node")
             self._set_inspector_enabled(False)
+            self._desc_edit.blockSignals(True)
+            self._desc_edit.setPlainText("")
+            self._desc_edit.blockSignals(False)
+            self._desc_edit_node_id = None
             self._body_edit.blockSignals(True)
             self._body_edit.setPlainText("")
             self._body_edit.blockSignals(False)
@@ -293,6 +379,10 @@ class MainWindow(QMainWindow):
         self._align_combo.blockSignals(False)
         self._bold.blockSignals(True); self._bold.setChecked(n.bold); self._bold.blockSignals(False)
         self._italic.blockSignals(True); self._italic.setChecked(n.italic); self._italic.blockSignals(False)
+        self._desc_edit.blockSignals(True)
+        self._desc_edit.setPlainText(n.description)
+        self._desc_edit.blockSignals(False)
+        self._desc_edit_node_id = n.id
         self._body_edit.blockSignals(True)
         self._body_edit.setPlainText(n.body)
         self._body_edit.blockSignals(False)
@@ -316,6 +406,38 @@ class MainWindow(QMainWindow):
         new_body = self._body_edit.toPlainText()
         if new_body != n.body:
             self.undo_stack.push(EditNodeCmd(self.scene, nid, {"body": new_body}, label="Edit notes"))
+
+    def _commit_description(self):
+        nid = getattr(self, "_desc_edit_node_id", None)
+        if nid is None:
+            return
+        n = self.scene.graph.nodes.get(nid)
+        if n is None:
+            return
+        new_desc = self._desc_edit.toPlainText()
+        if new_desc != n.description:
+            self.undo_stack.push(
+                EditNodeCmd(self.scene, nid, {"description": new_desc}, label="Edit description")
+            )
+
+    def _import_notes_markdown(self):
+        nid = getattr(self, "_body_edit_node_id", None)
+        if nid is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Markdown into notes", "", "Markdown (*.md *.markdown);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text()
+        except Exception as e:
+            QMessageBox.critical(self, "Import failed", str(e))
+            return
+        self._body_edit.blockSignals(True)
+        self._body_edit.setPlainText(text)
+        self._body_edit.blockSignals(False)
+        self._commit_body()
 
     def _set_attrs(self, attrs: dict):
         n = self._selected_single_node()
@@ -399,6 +521,7 @@ class MainWindow(QMainWindow):
                 width=src.width, height=src.height, color=src.color,
                 font_size=src.font_size, align=src.align,
                 bold=src.bold, italic=src.italic,
+                description=src.description, body=src.body,
             )
             self.undo_stack.push(AddNodeCmd(self.scene, dup))
             new_items.append(self.scene.node_items[dup.id])
@@ -562,6 +685,7 @@ class MainWindow(QMainWindow):
         self.view.fit_all()
 
     def save_file(self):
+        self._commit_description()
         self._commit_body()
         if self.current_path is None:
             self.save_file_as()
@@ -605,6 +729,7 @@ class MainWindow(QMainWindow):
         self._count_label.setText(f"{len(g.nodes)} nodes · {len(g.connections)} edges")
 
     def closeEvent(self, e):
+        self._commit_description()
         self._commit_body()
         if self._confirm_discard():
             e.accept()

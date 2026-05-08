@@ -54,6 +54,16 @@ class NodeItem(QGraphicsObject):
         self._text_item = QGraphicsTextItem(node.text, self)
         self._text_item.setDefaultTextColor(QColor(THEME.node_text))
         self._text_item.setTextInteractionFlags(Qt.NoTextInteraction)
+
+        # Description subtext (child item, never focused for editing — it's
+        # purely a visual display; users edit it from the inspector).
+        self._desc_item = QGraphicsTextItem(node.description, self)
+        self._desc_item.setDefaultTextColor(QColor(THEME.node_subtext))
+        self._desc_item.setTextInteractionFlags(Qt.NoTextInteraction)
+        # Don't intercept clicks — let them fall through to the node so a
+        # double-click anywhere on the node still edits the title.
+        self._desc_item.setAcceptedMouseButtons(Qt.NoButton)
+
         self._apply_font()
         self._layout_text()
 
@@ -119,36 +129,55 @@ class NodeItem(QGraphicsObject):
         f.setItalic(self.node.italic)
         self._text_item.setFont(f)
 
+        df = QFont()
+        df.setPointSize(max(5, self.node.font_size - 4))
+        df.setItalic(True)
+        self._desc_item.setFont(df)
+
     def _layout_text(self):
         doc = self._text_item.document()
+        desc_doc = self._desc_item.document()
 
         # Word-wrap only at whitespace — never split a word across lines.
-        opt = doc.defaultTextOption()
         align_map = {"left": Qt.AlignLeft, "center": Qt.AlignHCenter, "right": Qt.AlignRight}
-        opt.setAlignment(align_map.get(self.node.align, Qt.AlignHCenter))
-        opt.setWrapMode(QTextOption.WordWrap)
-        doc.setDefaultTextOption(opt)
+        align = align_map.get(self.node.align, Qt.AlignHCenter)
+        for d in (doc, desc_doc):
+            opt = d.defaultTextOption()
+            opt.setAlignment(align)
+            opt.setWrapMode(QTextOption.WordWrap)
+            d.setDefaultTextOption(opt)
+
+        # Keep description text in sync with the node model.
+        if self._desc_item.toPlainText() != self.node.description:
+            self._desc_item.setPlainText(self.node.description)
 
         # Grow node width if the longest word doesn't fit. Otherwise Qt would
         # either break it mid-word or overflow the node box.
-        fm = QFontMetricsF(self._text_item.font())
+        title_fm = QFontMetricsF(self._text_item.font())
+        desc_fm = QFontMetricsF(self._desc_item.font())
         longest_word_w = 0.0
-        for line in self.node.text.split("\n"):
-            for word in line.split():
-                w = fm.horizontalAdvance(word)
-                if w > longest_word_w:
-                    longest_word_w = w
+        for fm, src in ((title_fm, self.node.text), (desc_fm, self.node.description)):
+            for line in src.split("\n"):
+                for word in line.split():
+                    w = fm.horizontalAdvance(word)
+                    if w > longest_word_w:
+                        longest_word_w = w
         required_w = longest_word_w + 2 * THEME.node_padding + 2  # +2 safety
         size_changed = False
         if self.node.width < required_w:
             self.node.width = required_w
             size_changed = True
 
-        doc.setTextWidth(self.node.width - 2 * THEME.node_padding)
+        text_w = self.node.width - 2 * THEME.node_padding
+        doc.setTextWidth(text_w)
+        desc_doc.setTextWidth(text_w)
 
-        # Grow height if wrapped text is taller than the node.
-        text_h = doc.size().height()
-        required_h = text_h + 2 * THEME.node_padding
+        title_h = doc.size().height()
+        desc_h = desc_doc.size().height() if self.node.description else 0.0
+        # Small gap between title and description.
+        gap = 4.0 if self.node.description else 0.0
+
+        required_h = title_h + gap + desc_h + 2 * THEME.node_padding
         required_h = max(required_h, THEME.node_min_height)
         if self.node.height < required_h:
             self.node.height = required_h
@@ -158,17 +187,22 @@ class NodeItem(QGraphicsObject):
             self.prepareGeometryChange()
             self.notify_connections()
 
-        # Center vertically (account for header).
-        self._text_item.setPos(
-            THEME.node_padding,
-            max(THEME.node_header_height, (self.node.height - text_h) / 2),
-        )
+        # Vertically center the title+description block (account for header).
+        block_h = title_h + gap + desc_h
+        top = max(THEME.node_header_height, (self.node.height - block_h) / 2)
+        self._text_item.setPos(THEME.node_padding, top)
+        if self.node.description:
+            self._desc_item.setVisible(True)
+            self._desc_item.setPos(THEME.node_padding, top + title_h + gap)
+        else:
+            self._desc_item.setVisible(False)
 
     def refresh(self):
         """Call after mutating the underlying Node."""
         self.prepareGeometryChange()
         self.setPos(self.node.x, self.node.y)
         self._text_item.setPlainText(self.node.text)
+        self._desc_item.setPlainText(self.node.description)
         self._apply_font()
         self._layout_text()
         self.update()
