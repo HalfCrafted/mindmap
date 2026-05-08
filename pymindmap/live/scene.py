@@ -120,6 +120,22 @@ class LiveMindMapScene(QGraphicsScene):
         # is at rest and wakes again on any structural change.
         self._velocities: Dict[int, List[float]] = {}
         self._pinned: Set[int] = set()
+        # Nodes currently being tweened by the collapse/expand animation.
+        # They're pinned (velocity = 0) so the simulator can't fight the
+        # tween, but they DO participate in force calculations so neighbors
+        # gradually accommodate them — weighted by the per-node scale below.
+        # Without this, the moment the tween ends and a node "pops" into
+        # full force, surrounding nodes get jolted.
+        self._animating: Set[int] = set()
+        # nid → 0..1 scaling factor used by the visual setScale and as a
+        # per-node force multiplier in the physics tick. Default (missing)
+        # is 1.0 (full presence). 0 = invisible / no force.
+        self._anim_scale: Dict[int, float] = {}
+        self._anim_saved_home: Dict[int, Tuple[float, float]] = {}
+        # Counts down for a brief calm window after each animation so the
+        # damping/speed-cap relax back to baseline gradually, not in a
+        # single jarring tick.
+        self._settle_ticks_left: int = 0
         self._physics_idle_ticks: int = 0
         self._repulsion_scale: float = 1.0  # user-adjustable spread amount
         self._physics_timer = QTimer(self)
@@ -353,28 +369,335 @@ class LiveMindMapScene(QGraphicsScene):
             ci.setVisible(visible)
 
     def toggle_collapse(self, node_id: int):
-        """Flip the collapsed flag on a node, refresh visibility only.
+        """Flip the collapsed flag on a node and animate the subtree.
 
-        No re-layout: hiding/showing descendants shouldn't shuffle the
-        whole canvas. The hidden descendants keep their last-known
-        positions, so expanding drops them back exactly where they were
-        before — no re-optimisation surprise. Press Re-arrange if you
-        want a fresh pass.
+        Collapse: each layer of nodes physically slides into its parent,
+        layer by layer from the outside in, then disappears.
+        Expand: the reverse — children spawn at their parent's center and
+        bloom out to their saved positions, layer by layer from the
+        inside out. Animating nodes are excluded from physics for the
+        duration of their tween so the simulator doesn't catapult them
+        through other branches.
         """
         node = self.graph.nodes.get(node_id)
         if node is None or not self.has_descendants(node_id):
             return
         node.collapsed = not node.collapsed
+
+        # Compute the canonical hidden set for the new collapsed flag, then
+        # rewind self._hidden to the *current* state so we can animate the
+        # diff one BFS layer at a time.
+        old_hidden = set(self._hidden)
         self._recompute_hidden()
-        self.apply_visibility()
-        # Let the affected node's card repaint its chevron.
+        new_hidden = set(self._hidden)
+        self._hidden = old_hidden  # rewind; the animation will close the gap
+
+        descendants = self._all_descendants(node_id)
+        if node.collapsed:
+            changing = (new_hidden - old_hidden) & descendants
+        else:
+            changing = (old_hidden - new_hidden) & descendants
+
         item = self.node_items.get(node_id)
         if item is not None:
             item.update()
-        # Connections into/out of the expanded subtree need to re-route now
-        # that those endpoints are visible again.
+
+        if not changing:
+            self._hidden = new_hidden
+            self.apply_visibility()
+            for ci in self.connection_items:
+                ci.rebuild_path()
+            return
+
+        layers = self._depth_layers(node_id, changing,
+                                     deepest_first=node.collapsed)
+        self._start_collapse_anim(layers, target_hidden=new_hidden,
+                                  hide=node.collapsed, parent_id=node_id)
+
+    # ---- collapse/expand animation ---------------------------------------
+    def _all_descendants(self, root_id: int) -> Set[int]:
+        out: Set[int] = set()
+        stack = list(self._children.get(root_id, ()))
+        while stack:
+            nid = stack.pop()
+            if nid in out:
+                continue
+            out.add(nid)
+            stack.extend(self._children.get(nid, ()))
+        return out
+
+    def _depth_layers(self, root_id: int, members: Set[int], *,
+                      deepest_first: bool) -> List[List[int]]:
+        """Group ``members`` into BFS layers by hop-distance from ``root_id``.
+
+        layers[0] holds direct children of root, layers[1] grandchildren,
+        etc. — but only nodes also present in ``members`` survive into the
+        returned list. Reversing the order gives the outermost-first walk
+        used during collapse.
+        """
+        layers: List[List[int]] = []
+        seen = {root_id}
+        frontier = [root_id]
+        while frontier:
+            nxt: List[int] = []
+            for nid in frontier:
+                for c in self._children.get(nid, ()):
+                    if c in seen:
+                        continue
+                    seen.add(c)
+                    nxt.append(c)
+            if not nxt:
+                break
+            layer = [c for c in nxt if c in members]
+            if layer:
+                layers.append(layer)
+            frontier = nxt
+        if deepest_first:
+            layers.reverse()
+        return layers
+
+    # Per-layer tween duration (ms). The animation is now decoupled from
+    # the simulator (the surrounding tree doesn't shift), so this can run
+    # snappy without the physics getting jolted. Quick enough to feel
+    # responsive, slow enough to read the wave from outside-in or
+    # inside-out.
+    _ANIM_LAYER_MS = 220
+
+    def _start_collapse_anim(self, layers: List[List[int]], *,
+                             target_hidden: Set[int], hide: bool,
+                             parent_id: Optional[int] = None):
+        self._cancel_collapse_anim()
+        if not layers:
+            self._hidden = target_hidden
+            self.apply_visibility()
+            return
+        self._anim_layers = list(layers)
+        self._anim_target_hidden = target_hidden
+        self._anim_hide = hide
+        self._anim_parent = parent_id
+        # nid → (sx, sy, ex, ey, t_start_ms)  where positions are top-left.
+        self._anim_active: Dict[int, Tuple[float, float, float, float, float]] = {}
+        # nid → (saved_home_x, saved_home_y) so a later expand knows where
+        # to bloom back to even though we mutated n.x/y on the way in.
+        if not hasattr(self, "_anim_saved_home"):
+            self._anim_saved_home: Dict[int, Tuple[float, float]] = {}
+        # Animating nodes don't participate in physics — repulsion would
+        # fight the tween and re-introduce the violent ejection bug.
+        self._animating: Set[int] = getattr(self, "_animating", set())
+        # 60 Hz ticker drives the position interpolation.
+        timer = QTimer(self)
+        timer.setInterval(16)
+        timer.timeout.connect(self._anim_tick)
+        self._anim_timer = timer
+        self._begin_anim_layer()
+        timer.start()
+
+    def _begin_anim_layer(self):
+        """Pull the next BFS layer off the queue and kick off its tweens.
+
+        Per request: siblings inside a layer animate concurrently; layers
+        themselves run sequentially so the visual effect reads as a wave
+        from outside-in (collapse) or inside-out (expand).
+        """
+        layers = getattr(self, "_anim_layers", None) or []
+        if not layers:
+            return
+        layer = layers.pop(0)
+        now_ms = self._anim_now_ms()
+        hide = self._anim_hide
+        for nid in layer:
+            n = self.graph.nodes.get(nid)
+            if n is None:
+                continue
+            # Anchor = this node's parent in the spanning tree, or the
+            # click target if the parent wasn't recorded (root of the
+            # collapsing subtree).
+            anchor_id = self._parent.get(nid)
+            if anchor_id is None or anchor_id not in self.graph.nodes:
+                anchor_id = self._anim_parent
+            anchor = (self.graph.nodes.get(anchor_id)
+                      if anchor_id is not None else None)
+            if anchor is None:
+                continue
+            ax = anchor.x + anchor.width / 2.0 - n.width / 2.0
+            ay = anchor.y + anchor.height / 2.0 - n.height / 2.0
+
+            # The animation moves the node visually; physics keeps using
+            # the saved home (stored in _anim_saved_home) so neighbours
+            # don't see the topology change. We do mutate n.x/y to track
+            # the visual so connection rebuilds (which read n.x/y) follow
+            # the node smoothly during the tween.
+            if hide:
+                # Save home BEFORE the tween starts mutating n.x/y.
+                home_x, home_y = n.x, n.y
+                self._anim_saved_home[nid] = (home_x, home_y)
+                sx, sy = home_x, home_y
+                ex, ey = ax, ay
+            else:
+                # Saved home set during the matching collapse; if missing
+                # for any reason, fall back to current n.x/y.
+                home_x, home_y = self._anim_saved_home.get(nid, (n.x, n.y))
+                sx, sy = ax, ay
+                ex, ey = home_x, home_y
+                self._hidden.discard(nid)
+                item = self.node_items.get(nid)
+                if item is not None:
+                    item.setPos(sx, sy)
+                    item.setTransformOriginPoint(n.width / 2.0, n.height / 2.0)
+                    item.setScale(0.001)
+                    item.setVisible(True)
+                for ci in self.connection_items:
+                    if ci.conn.from_id == nid or ci.conn.to_id == nid:
+                        vis = (ci.conn.from_id not in self._hidden
+                               and ci.conn.to_id not in self._hidden)
+                        ci.setVisible(vis)
+                        if vis:
+                            ci.rebuild_path()
+                # Start n.x/y at the visual start so connections rebuilding
+                # this frame draw to the right spot.
+                n.x, n.y = sx, sy
+            self._anim_scale[nid] = 1.0 if hide else 0.0
+            self._anim_active[nid] = (sx, sy, ex, ey, now_ms)
+            self._animating.add(nid)
+            item = self.node_items.get(nid)
+            if item is not None:
+                item.setZValue(-0.5)
+                item.setTransformOriginPoint(n.width / 2.0, n.height / 2.0)
+            self._velocities[nid] = [0.0, 0.0]
+
+    def _anim_now_ms(self) -> float:
+        import time
+        return time.monotonic() * 1000.0
+
+    def _anim_tick(self):
+        active = getattr(self, "_anim_active", None) or {}
+        if not active and not getattr(self, "_anim_layers", None):
+            self._finish_collapse_anim()
+            return
+        now_ms = self._anim_now_ms()
+        duration = self._ANIM_LAYER_MS
+        completed: List[int] = []
+        hide = self._anim_hide
+        for nid, (sx, sy, ex, ey, t0) in active.items():
+            t = (now_ms - t0) / duration
+            if t >= 1.0:
+                t = 1.0
+                completed.append(nid)
+            # Smooth ease-in-out (smoothstep) — gentle on both ends so the
+            # nodes neither pop out of the parent nor crash into their home.
+            et = t * t * (3.0 - 2.0 * t)
+            nx = sx + (ex - sx) * et
+            ny = sy + (ey - sy) * et
+            scale = (1.0 - et) if hide else et
+            self._anim_scale[nid] = scale
+            n = self.graph.nodes.get(nid)
+            if n is not None:
+                # Mutate n.x/y to match the visual so connection rebuilds
+                # (which read node coordinates) track the moving node.
+                # Physics force calculations override this via
+                # _anim_saved_home so neighbours are unaffected.
+                n.x, n.y = nx, ny
+                item = self.node_items.get(nid)
+                if item is not None:
+                    item.setPos(nx, ny)
+                    item.setTransformOriginPoint(n.width / 2.0, n.height / 2.0)
+                    item.setScale(max(0.001, scale))
+        # Re-route any edge whose endpoint moved this frame.
+        if active:
+            moving = set(active.keys())
+            for ci in self.connection_items:
+                if ci.conn.from_id in moving or ci.conn.to_id in moving:
+                    if (ci.conn.from_id not in self._hidden
+                            and ci.conn.to_id not in self._hidden):
+                        ci.rebuild_path()
+        # Finalize per-node finishes.
+        for nid in completed:
+            del active[nid]
+            self._animating.discard(nid)
+            self._anim_scale.pop(nid, None)
+            item = self.node_items.get(nid)
+            if self._anim_hide:
+                # Vanish into the parent — mark hidden. The saved-home
+                # entry is *kept* so physics keeps treating this node as
+                # present at its real home position; only the visual
+                # disappears.
+                self._hidden.add(nid)
+                if item is not None:
+                    item.setVisible(False)
+                    item.setScale(1.0)
+                    item.setZValue(0.0)
+                for ci in self.connection_items:
+                    if ci.conn.from_id == nid or ci.conn.to_id == nid:
+                        ci.setVisible(False)
+            else:
+                # Bloom finished — node is back at home, normal physics
+                # use of n.x/y resumes; we no longer need the override.
+                self._anim_saved_home.pop(nid, None)
+                if item is not None:
+                    item.setScale(1.0)
+                    item.setZValue(0.0)
+            self._velocities[nid] = [0.0, 0.0]
+
+        # If the current layer is done, advance.
+        if not active:
+            if getattr(self, "_anim_layers", None):
+                self._begin_anim_layer()
+            else:
+                self._finish_collapse_anim()
+
+    def _finish_collapse_anim(self):
+        timer = getattr(self, "_anim_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._anim_timer = None
+        target = getattr(self, "_anim_target_hidden", None)
+        if target is not None:
+            self._hidden = set(target)
+        self._anim_layers = []
+        self._anim_active = {}
+        self._anim_target_hidden = None
+        self._anim_parent = None
+        # Make sure nothing is left in the animating set, and reset any
+        # transform we applied so subsequent renders use defaults.
+        for nid in list(getattr(self, "_animating", ())):
+            self._animating.discard(nid)
+            self._anim_scale.pop(nid, None)
+            item = self.node_items.get(nid)
+            if item is not None:
+                item.setScale(1.0)
+                item.setZValue(0.0)
+        self.apply_visibility()
         for ci in self.connection_items:
             ci.rebuild_path()
+        # Hand off to physics — small impulse-free wake so freshly-bloomed
+        # nodes can settle if any sibling overlap remains.
+        if not self._anim_hide:
+            self._wake_physics()
+
+    def _cancel_collapse_anim(self):
+        """Stop any in-flight tween. Leaves model state mid-flight; the
+        caller is responsible for restarting a fresh animation from there
+        or finalising via ``_finish_collapse_anim``."""
+        timer = getattr(self, "_anim_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._anim_timer = None
+        self._anim_layers = []
+        # Drain the active set; nodes mid-tween are simply left where they
+        # currently sit — the new animation will re-anchor them. Restore
+        # transform/Z so the snapshot they're left in renders correctly
+        # while the next animation is being set up.
+        for nid in list(getattr(self, "_anim_active", {}) or {}):
+            self._animating.discard(nid)
+            self._anim_scale.pop(nid, None)
+            item = self.node_items.get(nid)
+            if item is not None:
+                item.setScale(1.0)
+                item.setZValue(0.0)
+        self._anim_active = {}
+        self._anim_target_hidden = None
 
     # ---- rebuild ----------------------------------------------------------
     def rebuild_all(self):
@@ -589,10 +912,21 @@ class LiveMindMapScene(QGraphicsScene):
         if not nodes:
             self._pause_physics()
             return
-        visible_ids = [nid for nid in nodes if nid not in self._hidden]
+        animating = self._animating
+        hidden = self._hidden
+        saved_home = self._anim_saved_home
+        # ALL nodes participate in the force balance — including hidden
+        # and mid-tween ones, sourced from their saved home positions.
+        # This is the key to stopping the surrounding tree from shaking:
+        # from physics' point of view, the topology never changes when a
+        # branch collapses or blooms. The collapse/expand effect is then
+        # purely a visual transform on the QGraphicsItems.
+        visible_ids = list(nodes.keys())
         if not visible_ids:
             self._pause_physics()
             return
+        damping = PHYSICS_DAMPING
+        max_speed = PHYSICS_MAX_SPEED
 
         # Pre-compute centres + bounding-circle radii + half-dims once per
         # tick. Radii drive the soft 1/r² repulsion; half-dims drive the
@@ -603,7 +937,15 @@ class LiveMindMapScene(QGraphicsScene):
         half_dims: Dict[int, Tuple[float, float]] = {}
         for nid in visible_ids:
             n = nodes[nid]
-            centers[nid] = (n.x + n.width / 2.0, n.y + n.height / 2.0)
+            # Animating and hidden nodes are physics-anchored at their
+            # saved home; their visible n.x/y may be elsewhere (mid-tween
+            # or parked at the parent), but force calculations use the
+            # stable home so neighbours don't react to the visual change.
+            if nid in saved_home:
+                hx, hy = saved_home[nid]
+                centers[nid] = (hx + n.width / 2.0, hy + n.height / 2.0)
+            else:
+                centers[nid] = (n.x + n.width / 2.0, n.y + n.height / 2.0)
             hw = n.width / 2.0
             hh = n.height / 2.0
             radii[nid] = math.sqrt(hw * hw + hh * hh)
@@ -657,11 +999,6 @@ class LiveMindMapScene(QGraphicsScene):
                 fb[0] -= ux * force
                 fb[1] -= uy * force
 
-                # AABB constraint: if the actual rectangles (plus a small
-                # margin) are overlapping, schedule a *position* correction
-                # for both nodes along the axis of minimum penetration.
-                # Position correction is applied after integration and
-                # leaves velocity untouched — no oscillation possible.
                 req_x = ahw + bhw + PHYSICS_AABB_MARGIN
                 req_y = ahh + bhh + PHYSICS_AABB_MARGIN
                 ovx = req_x - abs(dx)
@@ -723,18 +1060,21 @@ class LiveMindMapScene(QGraphicsScene):
         # detection accounts for the constraint solver too.
         max_motion_sq = 0.0
         for nid in visible_ids:
-            if nid in self._pinned:
+            # Skip integration for: user-pinned drags, mid-tween animations
+            # (the timer owns their position), and hidden nodes (parked at
+            # home, contributing only force, never moving).
+            if nid in self._pinned or nid in animating or nid in hidden:
                 self._velocities[nid] = [0.0, 0.0]
                 continue
             v = self._velocities.setdefault(nid, [0.0, 0.0])
             fx, fy = forces[nid]
-            v[0] = v[0] * PHYSICS_DAMPING + fx
-            v[1] = v[1] * PHYSICS_DAMPING + fy
+            v[0] = v[0] * damping + fx
+            v[1] = v[1] * damping + fy
             speed_sq = v[0] * v[0] + v[1] * v[1]
-            if speed_sq > PHYSICS_MAX_SPEED * PHYSICS_MAX_SPEED:
+            if speed_sq > max_speed * max_speed:
                 speed = math.sqrt(speed_sq)
-                v[0] *= PHYSICS_MAX_SPEED / speed
-                v[1] *= PHYSICS_MAX_SPEED / speed
+                v[0] *= max_speed / speed
+                v[1] *= max_speed / speed
             n = nodes[nid]
             n.x += v[0]
             n.y += v[1]
