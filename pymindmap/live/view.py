@@ -243,7 +243,24 @@ class LiveMindMapView(QGraphicsView):
                 event.accept()
                 return
 
+            if node is not None and (mods & Qt.ControlModifier) and not (mods & Qt.ShiftModifier):
+                # Ctrl-click on a node = additive subtree select: pick the
+                # node, all its descendants, and every connection whose
+                # endpoints both lie in that set.
+                self._select_subtree(node)
+                event.accept()
+                return
+
             if node is not None and (mods & Qt.ShiftModifier):
+                # Shift-click on the collapse/expand chevron is a recursive
+                # toggle — let the item handle it instead of starting a
+                # connect-drag.
+                btn = getattr(node, "_button_rect", None)
+                if btn is not None and getattr(node, "_cached_has_children", False):
+                    pt_item = node.mapFromScene(self.mapToScene(event.pos()))
+                    if btn.contains(pt_item):
+                        super().mousePressEvent(event)
+                        return
                 self._start_connect(node, event.pos())
                 event.accept()
                 return
@@ -367,6 +384,18 @@ class LiveMindMapView(QGraphicsView):
         self.scene().removeItem(self._marquee)
         self._marquee = None
         self._marquee_origin = None
+
+    # ---- subtree select ---------------------------------------------------
+    def _select_subtree(self, node: LiveNodeItem):
+        scene = self.scene()
+        ids = {node.node.id} | scene._all_descendants(node.node.id)
+        for nid in ids:
+            it = scene.node_items.get(nid)
+            if it is not None:
+                it.setSelected(True)
+        for ci in scene.connection_items:
+            if ci.conn.from_id in ids and ci.conn.to_id in ids:
+                ci.setSelected(True)
 
     # ---- connect ----------------------------------------------------------
     def _start_connect(self, node: LiveNodeItem, pos):

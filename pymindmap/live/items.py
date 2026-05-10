@@ -535,7 +535,8 @@ class LiveNodeItem(QGraphicsObject):
         if (btn is not None and event.button() == Qt.LeftButton
                 and self._cached_has_children and btn.contains(event.pos())):
             if self._scene is not None:
-                self._scene.toggle_collapse(self.node.id)
+                recursive = bool(event.modifiers() & Qt.ShiftModifier)
+                self._scene.toggle_collapse(self.node.id, recursive=recursive)
             event.accept()
             return
         # Folder icon: open the linked path on left-click.

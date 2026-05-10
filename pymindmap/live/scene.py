@@ -368,7 +368,7 @@ class LiveMindMapScene(QGraphicsScene):
                        and ci.conn.to_id not in self._hidden)
             ci.setVisible(visible)
 
-    def toggle_collapse(self, node_id: int):
+    def toggle_collapse(self, node_id: int, *, recursive: bool = False):
         """Flip the collapsed flag on a node and animate the subtree.
 
         Collapse: each layer of nodes physically slides into its parent,
@@ -378,11 +378,26 @@ class LiveMindMapScene(QGraphicsScene):
         inside out. Animating nodes are excluded from physics for the
         duration of their tween so the simulator doesn't catapult them
         through other branches.
+
+        When ``recursive`` is True, the operation cascades to every
+        descendant: shift-collapse marks every descendant with children
+        as collapsed, shift-expand clears the flag on every descendant
+        so the whole subtree blooms open at once.
         """
         node = self.graph.nodes.get(node_id)
         if node is None or not self.has_descendants(node_id):
             return
         node.collapsed = not node.collapsed
+        if recursive:
+            for did in self._all_descendants(node_id):
+                dnode = self.graph.nodes.get(did)
+                if dnode is None:
+                    continue
+                if node.collapsed:
+                    if self._children.get(did):
+                        dnode.collapsed = True
+                else:
+                    dnode.collapsed = False
 
         # Compute the canonical hidden set for the new collapsed flag, then
         # rewind self._hidden to the *current* state so we can animate the
