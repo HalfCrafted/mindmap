@@ -62,7 +62,10 @@ PHYSICS_REST_TICKS = 30         # ~0.5 s at rest before pausing
 # top of soft repulsion to guarantee real rectangles never clip. Velocity
 # is left untouched, so no oscillation: each tick the overlap is reduced
 # by PHYSICS_AABB_RELAX of itself, asymptotically converging to zero.
-PHYSICS_AABB_MARGIN = 8.0       # extra padding around each card's AABB
+PHYSICS_AABB_MARGIN = 50.0      # extra padding around each card's AABB —
+                                # also the guaranteed minimum visible gap
+                                # between any two node borders, so arrows
+                                # always have room to render
 PHYSICS_AABB_RELAX = 0.30       # fraction of overlap separated per tick
 PHYSICS_AABB_MIN_OV = 0.5       # ignore overlaps below this (px) — keeps
                                 # the constraint solver from micro-nudging
